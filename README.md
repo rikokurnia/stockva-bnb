@@ -1,72 +1,161 @@
-# stockva-bnb
+# Stockva — Build a City from Your Stock Portfolio
 
-Stockva makes a BSC mainnet tokenized-stock wallet visible as an isometric city. Buy an issuer token with USDT, place its building after the wallet balance confirms, and sell that token back into USDT in the same wallet. Roads and city services are free visual features.
+**A visual tokenized-stock portfolio and spot-trading app on BNB Smart Chain.**
 
-This folder is the mainnet application. It does not use the old mUSD faucet or simulation vault for trades. No custom contract deployment is needed: issuer tokens stay in the connected wallet and execution uses existing Binance Web3 routes on BNB Smart Chain, chain ID 56.
+Built for **BNB Hack: Tokenized Stocks Edition**, the online BNB Chain and Binance Web3 Wallet hackathon. Stockva turns real wallet holdings into an isometric city: buy an issuer stock token with USDT, place its company building after the balance confirms, then sell the token back into USDT in the same wallet.
 
-## Mainnet behavior
+[Repository](https://github.com/rikokurnia/stockva-bnb) · [Official hackathon](https://www.bnbchain.org/en/hackathons/tokenized-stocks?tab=resources) · [Submission checklist](docs/hackathon-checklist.md) · [Mainnet verification evidence](docs/mainnet-readiness.md)
 
-- Token discovery uses Binance Web3 RWA data and exact BSC contracts for Ondo, bStocks, or xStocks. Issuer, symbol, contract, and decimals are kept together; tokens from different issuers are separate assets.
-- Each buy or sell requests an executable quote for that exact contract and wallet. Approvals and execution need explicit wallet signatures; a market observation is never used as settlement input.
-- Wallet USDT, BNB, and issuer-token quantities are read from BSC. Order status, transaction receipt, and refreshed balances determine the confirmed state.
-- Buildings represent confirmed wallet holdings. Removing a visual building leaves its tokens in the wallet. A sale is a separate reviewed transaction.
-- Prices and histories come from real BSC provider observations. Missing sources show unavailable data. Underlying stock research is labelled separately and cannot replace a token execution price.
-- The optional Cokoo advisor analyses wallet context. It cannot sign trades, run an autonomous strategy, or schedule purchases.
+## Why Stockva
+
+A list of tickers and balances can make a first on-chain stock purchase feel abstract. Stockva gives those holdings a visual home while keeping the actual asset, issuer, price, and transaction visible.
+
+- **Build your portfolio city.** Company buildings represent confirmed stock-token holdings in your wallet. Roads and civic services are free visual features.
+- **Discover exact issuer tokens.** Browse Binance Web3 RWA data for bStocks, Ondo, and xStocks on BSC. Different issuers of the same underlying stock remain separate assets.
+- **Buy and sell with real USDT.** Review a wallet-specific quote, simulate the transaction, sign in your wallet, and follow confirmation through City Hall.
+- **Research before trading.** Inspect available token prices, history, and company research. The optional Cokoo advisor provides analysis; each trade requires your own wallet signature.
+
+The city is a view of your portfolio. Removing a building changes its visual placement; selling tokens is a separate reviewed trade.
+
+## BNB Hack integration
+
+Stockva enters the **Tokenized Stocks Products & Agents** main track as a portfolio and trading interface. Issuer stock tokens are the assets users discover, hold, buy, and sell.
+
+| Integration                  | How Stockva uses it                                                                                 |
+| ---------------------------- | --------------------------------------------------------------------------------------------------- |
+| Binance Web3 RWA Data API    | Discover BSC issuer contracts and retrieve stock, issuer, and reference information.                |
+| Binance Web3 Market API      | Retrieve token-price observations and available candlesticks for the selected contract.             |
+| Binance Web3 Trading API     | Request exact-token, exact-wallet spot quotes, approvals, and unsigned execution data.              |
+| Binance Web3 Transaction API | Require transaction simulation before wallet execution.                                             |
+| BNB Smart Chain              | Read real balances and verify transaction receipts and token transfers on mainnet, chain ID **56**. |
+| Privy and viem               | Connect the user's EVM wallet, request signatures, and interact with BSC.                           |
+
+Wallet balances come from BSC RPC. The Cokoo advisor is advisory only; Agentic Wallet, Wallet Skills, and BNB Agent Studio are not implemented integrations.
+
+Market observations retain their source timestamps. Missing prices or token history show as unavailable. Underlying stock reference prices and company research are labelled separately and never substitute for an executable token quote.
+
+## Mainnet architecture
+
+```mermaid
+flowchart LR
+    User[Connected EVM wallet] --> City[Stockva city and trade review]
+    City --> Server[Next.js server APIs]
+    Server --> Data[Binance Web3 RWA and Market APIs]
+    Server --> Trade[Binance Web3 Trading and Transaction APIs]
+    Server --> Chain[BNB Smart Chain mainnet]
+    City --> Sign[User reviews and signs in wallet]
+    Sign --> Chain
+    Chain --> Confirm[Verify receipt, transfers, and balances]
+    Confirm --> City
+```
+
+USDT and issuer tokens stay in the connected wallet. Existing issuer and routing contracts execute trades; Stockva does not require its own mainnet vault deployment. API credentials stay on the server. Encrypted, session-bound recovery tickets let the app recover reviewed orders across stateless requests, with receipts checked again before displaying a fill.
+
+Execution currently supports the verified **LiquidMesh SWAP** route. Quotes must pass chain, issuer, router, expiry, fee, and price-impact checks. Approvals use the required amount rather than an unlimited allowance. RFQ execution remains unavailable until the complete vendor signing domain and order schema are verified. A discovered token is tradeable only when a supported route passes these checks.
 
 ## Run locally
 
-Use Node.js 22.18 or newer and an EVM browser wallet.
+Requirements: **Node.js 22.18 or newer**, npm, an EVM wallet, a Privy app, and Binance Web3 API credentials. Obtain Binance credentials through the [developer portal](https://web3.binance.com/en/dev-portal).
 
 ```bash
+git clone https://github.com/rikokurnia/stockva-bnb.git
+cd stockva-bnb
 npm install
 cp .env.example .env.local
+```
+
+Configure `.env.local` using [.env.example](.env.example):
+
+| Variable                         | Purpose                                                                                                     |
+| -------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `NEXT_PUBLIC_PRIVY_APP_ID`       | Required wallet login configuration. Allow the local and deployed origins in Privy.                         |
+| `BINANCE_WEB3_API_KEY`           | Required server-side Binance Web3 access.                                                                   |
+| `BINANCE_WEB3_API_SECRET`        | Required server-side request signing.                                                                       |
+| `STOCKVA_TRADING_SESSION_SECRET` | Set a stable private secret for production order recovery; keep it identical across instances and releases. |
+| `BSC_MAINNET_RPC_URL`            | Optional server RPC override; must resolve BSC mainnet, chain ID 56.                                        |
+| `NEXT_PUBLIC_BSC_RPC_URL`        | Optional browser RPC override for BSC mainnet.                                                              |
+| AI provider variables            | Optional Cokoo analysis; see the environment example.                                                       |
+
+Keep real credentials out of Git. Only public configuration belongs in variables prefixed with `NEXT_PUBLIC_`. Missing provider credentials produce unavailable data rather than demo prices or balances.
+
+```bash
 npm run dev
 ```
 
-Set `NEXT_PUBLIC_PRIVY_APP_ID`, configure the local and deployed origins in Privy, and add the server-only `BINANCE_WEB3_API_KEY` and `BINANCE_WEB3_API_SECRET`. Never put secrets in a `NEXT_PUBLIC_` variable. Optional RPC URLs must point to BSC mainnet.
+Open [Stockva City](http://localhost:3000/city). Connect your wallet and select **BNB Smart Chain mainnet (56)**. Trading requires **BSC USDT** and **BNB for gas** in that same wallet.
 
-Open [the city](http://localhost:3000/city). Connect a wallet and confirm BNB Smart Chain, chain ID 56. Fund that wallet with USDT and BNB on BSC. Assets on Ethereum or another network are not spendable here.
+BSC USDT contract: [`0x55d398326f99059fF775485246999027B3197955`](https://bscscan.com/token/0x55d398326f99059fF775485246999027B3197955).
 
-## Verification
+## Judge walkthrough: buy → build → sell
+
+1. Open `/city`, connect an eligible wallet, and check its actual BSC USDT and BNB balances.
+2. Choose a stock token and inspect its issuer and exact contract address.
+3. Request a small USDT purchase quote. Review expected and minimum receipt, fees, expiry, and any required approval.
+4. Review the successful Transaction API simulation and sign the approval and purchase when requested. Confirm the actual token receipt and wallet balance.
+5. Place the company's building in your city. Inspect the confirmed order and explorer link in City Hall.
+6. Sell the confirmed token amount using a fresh quote and simulation. Sign, wait for confirmation, and check that USDT returned to the same wallet.
+7. Keep the purchase and sale hashes and reconcile actual gas, returned USDT, and any remaining token dust.
+
+An unsupported route, expired quote, failed simulation, or provider outage must show its error and stop execution. A quote or unsigned transaction build does not establish a completed trade.
+
+## Verification and small-trade budget
 
 ```bash
 npm test
 npm run typecheck
 npm run build
-# Optional read-only Binance/BSC source check (requires server credentials)
+
+# Read-only provider checks; require configured credentials.
 npm run check:market
 npm run check:mainnet -- YOUR_WALLET_ADDRESS 0.5 1
 ```
 
-The production test command checks mainnet layout and runtime safety, provider data parsing, trading validation, and reusable research/UI logic. `npm run test:legacy` preserves the historical simulation tests as migration references; their old economics and testnet assumptions do not define mainnet behavior.
+These scripts do not sign or broadcast transactions. The mainnet checker probes small NVDAB buy quotes, unsigned builds, available simulations, and reverse-sell quotes. An approval may need confirmation before the funded swap itself can be simulated.
 
-To build while a development server is open, use a separate output directory:
+Recorded checks on **6 October 2026** passed all **69 production tests**, type checking, and the production build. Provider checks resolved 488 BSC issuer contracts and obtained $0.50, $1, and $2 NVDAB quotes, unsigned builds, and exact-approval simulations. These are historical observations; current availability and costs require a fresh check. See [the evidence and remaining live checks](docs/mainnet-readiness.md).
+
+For a first test, a provisional funding target is **$1 in BSC USDT plus roughly $1 in BNB for gas** for an empty wallet. Funding is different from expenditure: selling should return the trade principal less fees, spread, slippage, market movement, and dust. Neither a universal minimum nor a complete round trip below $1 has been verified. Exchange withdrawal and bridge fees are additional.
+
+To build alongside your own running development server, use a separate output directory:
 
 ```bash
 STOCKCITY_NEXT_DIST_DIR=.next-production npm run build
 STOCKCITY_NEXT_DIST_DIR=.next-production npm run start -- --port 3001
 ```
 
-A passing build or successful quote is not proof of a completed trade. Before presenting the app as a verified live product, finish the small mainnet round trip described in [mainnet readiness](docs/mainnet-readiness.md), keep both transaction hashes, and confirm the returned USDT balance.
+## Submission status
 
-The owner will deploy later from a separate repository. [Vercel preparation](docs/vercel-deployment.md) records the environment, session recovery, and release checks.
+This repository contains the mainnet implementation. **Public Vercel deployment and a funded buy → sell round trip are pending.** No live purchase, token receipt, sale, or returned-USDT evidence is claimed yet.
 
-## Costs and current limits
+| Deliverable                                   | Status                                                                               |
+| --------------------------------------------- | ------------------------------------------------------------------------------------ |
+| BSC mainnet app and Binance Web3 integrations | Implemented; local verification recorded.                                            |
+| Repository                                    | Published as `stockva-bnb`; currently private and must become public for submission. |
+| Public demo                                   | Vercel deployment planned; use the local judge instructions above meanwhile.         |
+| Small live trade evidence                     | Pending wallet funding, signatures, and balance reconciliation.                      |
+| Demo video                                    | Pending; optional but strongly recommended, maximum four minutes.                    |
+| Developer Experience Report                   | Pending; must be written by the human builder from their actual experience.          |
 
-A sensible first funding target is $1 of BSC USDT plus roughly $1 of BNB for gas. This is a funding budget, not an expected loss: most trade principal should return as USDT after selling, subject to the actual route, fees, spread, and market movement. There is no verified universal minimum. Network and funding fees outside BSC are additional.
+The [official rules](https://www.bnbchain.org/en/hackathons/tokenized-stocks?tab=resources), rechecked **7 October 2026**, require a working Binance Web3 project, a central bStocks/Ondo/xStocks use case, BSC mainnet spot trading, transaction dry runs, and a small live demonstration. Submission also requires a public repository, a deployed link or judge instructions, and a Developer Experience Report. The report accounts for 25% of judging; AI-generated reports are not accepted.
 
-Read-only checks have obtained small bStock buy and reverse-sell quotes, and unsigned transaction builds plus exact-approval dry runs succeeded for the actual wallet. The wallet needs USDT before a funded swap dry-run and live fill can be verified. RFQ execution remains disabled until complete vendor-specific signing adapters are verified. Route restrictions must be reported explicitly rather than replaced with local holdings. See [the evidence and remaining work](docs/mainnet-readiness.md).
+Submissions close **11 October 2026 at 12:00 UTC / 19:00 Asia/Jakarta**. Keep the submitted repository, demo, and deployed link accessible through judging on **12–23 October 2026**. Confirm participant eligibility and complete the official forms through the event page.
 
-## Hackathon
+See [the submission checklist](docs/hackathon-checklist.md) for remaining deliverables and [Vercel preparation](docs/vercel-deployment.md) for deployment settings. Import this repository into Vercel with the **repository root** as the project root and the Next.js preset. Configure production credentials, a stable recovery secret, and the deployed Privy origin before live verification.
 
-The [official Tokenized Stocks Edition rules](https://www.bnbchain.org/en/hackathons/tokenized-stocks?tab=resources) require a working Binance Web3 API integration, BSC mainnet, a central bStocks/Ondo/xStocks use case, spot only, and a small live demonstration after transaction dry runs. A public repository, accessible demo/deployed link or reproducible judge instructions, and a human-written Developer Experience Report are submission requirements. The demo video is optional but strongly recommended, with a four-minute limit.
+## Project layout
 
-The [submission checklist](docs/hackathon-checklist.md) tracks completion honestly. It does not claim a live trade, deployment, or accepted submission that has not happened.
+| Path                          | Responsibility                                                                                   |
+| ----------------------------- | ------------------------------------------------------------------------------------------------ |
+| `app/`                        | Next.js pages and server API routes.                                                             |
+| `components/mainnet-city.tsx` | Mainnet city, wallet, trade review, and order interface.                                         |
+| `lib/mainnet.ts`              | BSC configuration, asset types, and RPC access.                                                  |
+| `lib/trading-server.ts`       | Discovery, balance reads, quote/build/simulation validation, recovery, and receipt verification. |
+| `lib/trading-client.ts`       | Wallet transaction execution and browser order recovery.                                         |
+| `tests/`                      | Production safety, market data, trading, and UI logic checks.                                    |
+| `scripts/`                    | Read-only provider and mainnet readiness checks.                                                 |
+| `docs/`                       | Evidence, submission checklist, and deployment preparation.                                      |
+| `contracts/`                  | Archived testnet simulation contracts; unused by the mainnet trading flow.                       |
 
-## Archived contracts
+The archived contracts accept caller-supplied prices and were built for freely minted mUSD. They must not custody real collateral or serve as the mainnet trading system. Historical checks remain available through `npm run test:legacy`.
 
-`contracts/` contains the old testnet simulation ledger for historical reference. It accepts caller-supplied prices and was designed for freely minted mUSD. It must not custody real collateral or be deployed as the mainnet stock-trading system. Mainnet trading does not import its writes or use its addresses.
-
-## Stack
-
-Next.js 15, React 19, TypeScript, Privy, viem, Binance Web3 RWA/Market/Trading/Transaction APIs, and lightweight-charts. Corporate filings and news are independent research sources.
+**Stack:** Next.js 15, React 19, TypeScript, Privy, viem, Binance Web3 APIs, and lightweight-charts.
