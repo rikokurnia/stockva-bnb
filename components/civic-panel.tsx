@@ -4,12 +4,14 @@ import Image from "next/image";
 import { X } from "lucide-react";
 import {
   sprite,
+  defFor,
   type Building,
   type BuildingKind,
   type CityState,
   type PriceMap,
 } from "../lib/city";
 import type { MarketFeed } from "../lib/market";
+import type { MainnetReceipt, WalletBalances } from "../lib/mainnet";
 import CivicCityHall from "./civic-city-hall";
 import CivicMarket from "./civic-market";
 import RwaSessionClock from "./rwa-session-clock";
@@ -40,7 +42,11 @@ export type CivicProps = {
     receipts: { buildingId: string; hash: `0x${string}`; vaultId: string }[],
   ) => void;
   transactionPending?: boolean;
-  onPurchaseSubmitted?: (purchase: import("../lib/rebalance-execution").PendingDirectPurchase) => void;
+  onPurchaseSubmitted?: (
+    purchase: import("../lib/rebalance-execution").PendingDirectPurchase,
+  ) => void;
+  receipts?: MainnetReceipt[];
+  balance?: WalletBalances | null;
 };
 const services = {
   portfolio: {
@@ -135,8 +141,12 @@ export default function CivicPanel(props: CivicProps) {
             </div>
           </div>
           <div className={styles.headerEnd}>
-            {mode !== "portfolio" && <span className={styles.sessionClock}><RwaSessionClock /></span>}
-            <span className={styles.badge}>City sandbox · BNB testnet</span>
+            {mode !== "portfolio" && (
+              <span className={styles.sessionClock}>
+                <RwaSessionClock />
+              </span>
+            )}
+            <span className={styles.badge}>BNB Smart Chain · 56</span>
             <button
               className={styles.iconButton}
               aria-label={`Close ${service.title}`}
@@ -149,7 +159,20 @@ export default function CivicPanel(props: CivicProps) {
         </header>
         <div ref={body} className={styles.body}>
           {mode === "portfolio" ? (
-            <CivicCityHall {...props} onBusy={setBusy} />
+            <CivicCityHall
+              walletAddress={props.walletAddress}
+              balance={props.balance}
+              receipts={props.receipts}
+              onConnectWallet={props.onConnectWallet}
+              onClose={props.onClose}
+              onBusy={setBusy}
+              onFocusTicker={(ticker) => {
+                const building = props.city.buildings.find(
+                  (item) => defFor(item.kind).ticker === ticker,
+                );
+                if (building) props.onFocus(building);
+              }}
+            />
           ) : (
             <CivicMarket key={mode} {...props} onResetScroll={resetScroll} />
           )}
@@ -158,9 +181,9 @@ export default function CivicPanel(props: CivicProps) {
           <span>
             {busy
               ? "Wallet confirmation in progress. Keep this window open."
-              : "Your city uses testnet mUSD, not ownership of the underlying stock."}
+              : "Stock tokens settle in your wallet. Review issuer terms before trading."}
           </span>
-          <span>StockCity</span>
+          <span>Stockva</span>
         </footer>
       </div>
     </div>

@@ -81,7 +81,7 @@ export default function CivicMarket(
     setBundleTickers((previous) => [...new Set([...previous, symbol])]);
     setBundleAmounts((previous) => ({
       ...previous,
-      [symbol]: previous[symbol] ?? "500",
+      [symbol]: previous[symbol] ?? "1",
     }));
     setView("bundle");
   }
@@ -121,7 +121,14 @@ export default function CivicMarket(
               price provenance. Missing evidence stays visible.
             </p>
           </div>
-          <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
+          <div
+            style={{
+              display: "flex",
+              gap: "8px",
+              alignItems: "center",
+              flexWrap: "wrap",
+            }}
+          >
             <RwaSessionClock />
             <button className={styles.secondary} onClick={props.onScan}>
               <Crosshair size={16} /> Inspect on island
@@ -227,14 +234,16 @@ export default function CivicMarket(
                           <small>{asset.name}</small>
                         </span>
                         <div>
-                          {money(priceOf(asset.ticker, props.prices))}
+                          {props.feed.quotes[asset.ticker]?.price > 0
+                            ? money(props.feed.quotes[asset.ticker].price)
+                            : "—"}
                           <small>
                             {props.feed.quotes[asset.ticker]?.status === "live"
                               ? "Observed"
                               : props.feed.quotes[asset.ticker]?.status ===
                                   "stale"
                                 ? "Stale"
-                                : "Illustrative"}
+                                : "Unavailable"}
                           </small>
                         </div>
                       </button>
@@ -319,7 +328,7 @@ function BundleBuilder({
 }: BundleProps) {
   const [search, setSearch] = useState("");
   const [selectedSector, setSelectedSector] = useState<string>("all");
-  const [splitBudget, setSplitBudget] = useState("3000");
+  const [splitBudget, setSplitBudget] = useState("1");
   const [touched, setTouched] = useState<Record<string, boolean>>({});
   const [message, setMessage] = useState("");
   const [rwaTabs, setRwaTabs] = useState<RwaSectorTab[]>([]);
@@ -342,6 +351,10 @@ function BundleBuilder({
   const chooser = useRef<HTMLElement>(null);
 
   const validation = validateBundle(selected, amounts, available, city.cash);
+  const pricesAvailable = selected.every(
+    (ticker) =>
+      feed.quotes[ticker]?.status === "live" && feed.quotes[ticker]?.price > 0,
+  );
 
   const filteredOptions = assets.filter((asset) => {
     if (selectedSector === "hero") {
@@ -367,8 +380,8 @@ function BundleBuilder({
     setMessage("");
     const perStock =
       eligible.length > 10 && city.cash > 0
-        ? Math.max(10, Math.floor(city.cash / eligible.length))
-        : 500;
+        ? Math.max(1, Math.floor(city.cash / eligible.length))
+        : 1;
     setAmounts((previous) => ({
       ...previous,
       ...Object.fromEntries(
@@ -400,7 +413,7 @@ function BundleBuilder({
       setSelected((prev) => [...new Set([...prev, ...unbuilt])]);
       setAmounts((prev) => ({
         ...prev,
-        ...Object.fromEntries(unbuilt.map((t) => [t, prev[t] ?? "500"])),
+        ...Object.fromEntries(unbuilt.map((t) => [t, prev[t] ?? "1"])),
       }));
       setMessage(
         `Added ${unbuilt.length} stocks from ${secDef.name} to basket.`,
@@ -416,7 +429,7 @@ function BundleBuilder({
     );
     setAmounts((previous) => ({
       ...previous,
-      [ticker]: previous[ticker] ?? "500",
+      [ticker]: previous[ticker] ?? "1",
     }));
     setMessage("");
   }
@@ -469,9 +482,18 @@ function BundleBuilder({
             together in one transaction on BNB Smart Chain.
           </p>
         </div>
-        <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
+        <div
+          style={{
+            display: "flex",
+            gap: "8px",
+            alignItems: "center",
+            flexWrap: "wrap",
+          }}
+        >
           <RwaSessionClock />
-          <span className={styles.statusBadge}>{money(city.cash)} city cash</span>
+          <span className={styles.statusBadge}>
+            {money(city.cash)} city cash
+          </span>
         </div>
       </div>
 
@@ -545,8 +567,11 @@ function BundleBuilder({
           setTouched(
             Object.fromEntries(selected.map((ticker) => [ticker, true])),
           );
-          if (!validation.valid) {
-            setMessage(validation.error);
+          if (!validation.valid || !pricesAvailable) {
+            setMessage(
+              validation.error ||
+                "Refresh available BSC token prices before continuing.",
+            );
             return;
           }
           const items = validation.tickers.map((ticker) => ({
@@ -728,10 +753,7 @@ function BundleBuilder({
                       setAmounts((prev) => ({
                         ...prev,
                         ...Object.fromEntries(
-                          unbuiltInActiveSector.map((t) => [
-                            t,
-                            prev[t] ?? "500",
-                          ]),
+                          unbuiltInActiveSector.map((t) => [t, prev[t] ?? "1"]),
                         ),
                       }));
                     }
@@ -776,9 +798,15 @@ function BundleBuilder({
                 (item) => item.ticker === asset.ticker,
               );
               if (!definition) return null;
-              const isAvailable = available.includes(asset.ticker);
+              const isAvailable =
+                available.includes(asset.ticker) &&
+                feed.quotes[asset.ticker]?.status === "live" &&
+                feed.quotes[asset.ticker]?.price > 0;
               const isSelected = selected.includes(asset.ticker);
-              const price = priceOf(asset.ticker, prices);
+              const price =
+                feed.quotes[asset.ticker]?.price > 0
+                  ? feed.quotes[asset.ticker].price
+                  : null;
               const secDef = definition.sectorKey
                 ? defForSector(definition.sectorKey)
                 : null;
@@ -827,7 +855,7 @@ function BundleBuilder({
                   </small>
                   <div className={styles.bundleCardPrice}>
                     <span>Price</span>
-                    <strong>{money(price)}</strong>
+                    <strong>{price !== null ? money(price) : "—"}</strong>
                   </div>
                 </button>
               );
@@ -881,7 +909,7 @@ function BundleBuilder({
                   <option value="" disabled>
                     Set same amount for all
                   </option>
-                  {[100, 250, 500, 1000, 2500].map((amount) => (
+                  {[0.5, 1, 2, 5, 10].map((amount) => (
                     <option key={amount} value={amount}>
                       {money(amount)} per company
                     </option>
@@ -901,7 +929,7 @@ function BundleBuilder({
                     className={styles.evenSplitInput}
                     value={splitBudget}
                     onChange={(e) => setSplitBudget(e.target.value)}
-                    placeholder="Total e.g. 3000"
+                    placeholder="Total e.g. 1"
                     aria-label="Total budget to distribute evenly"
                   />
                   <button
@@ -978,8 +1006,9 @@ function BundleBuilder({
                       >
                         {touched[ticker] && validation.errors[ticker]
                           ? validation.errors[ticker]
-                          : Number.isFinite(Number(amounts[ticker]))
-                            ? `≈ ${(Number(amounts[ticker] || 0) / priceOf(ticker, prices)).toLocaleString(undefined, { maximumFractionDigits: 4 })} units @ ${money(priceOf(ticker, prices))}`
+                          : Number.isFinite(Number(amounts[ticker])) &&
+                              feed.quotes[ticker]?.price > 0
+                            ? `≈ ${(Number(amounts[ticker] || 0) / (feed.quotes[ticker]?.price ?? 0)).toLocaleString(undefined, { maximumFractionDigits: 4 })} units @ ${money(feed.quotes[ticker]?.price ?? 0)}`
                             : "Enter a valid USD amount"}
                       </small>
                     </div>
@@ -1002,15 +1031,15 @@ function BundleBuilder({
             (ticker) => feed.quotes[ticker]?.status !== "live",
           ) && (
             <p className={styles.warning}>
-              Some estimates use stale or illustrative city quotes. Refresh
-              market data before continuing.
+              Some token prices are stale or unavailable. Refresh market data
+              before continuing.
             </p>
           )}
 
           <button
             className={styles.primary}
             type="submit"
-            disabled={!validation.valid}
+            disabled={!validation.valid || !pricesAvailable}
           >
             {selected.length === 1
               ? `Place ${selected[0]} on island · ${money(validation.total)}`
@@ -1027,8 +1056,8 @@ function BundleBuilder({
             </p>
           )}
           <p className={styles.caption}>
-            No transaction is sent here. Place buildings on your island, then
-            confirm together in 1 transaction on BNB Smart Chain.
+            Allocations require fresh executable quotes and wallet confirmation
+            before they become actual holdings.
           </p>
         </aside>
       </form>

@@ -26,12 +26,21 @@ export default function EquityChart({ points }: { points: EquityPoint[] }) {
   const chartRef = useRef<IChartApi | null>(null);
   const [range, setRange] = useState<Range>("All");
   const shown = useMemo(() => {
-    const sorted = [...points].sort((a, b) => a.t - b.t);
+    const sorted = points
+      .filter(
+        (point) =>
+          Number.isFinite(point.t) &&
+          point.t > 0 &&
+          point.t <= Date.now() &&
+          Number.isFinite(point.equity) &&
+          point.equity >= 0,
+      )
+      .sort((a, b) => a.t - b.t);
     const window = RANGE_MS[range];
     if (!window) return sorted;
     const cutoff = Date.now() - window;
     const filtered = sorted.filter((p) => p.t >= cutoff);
-    return filtered.length >= 2 ? filtered : sorted;
+    return filtered;
   }, [points, range]);
   const positive =
     shown.length < 2 || shown[shown.length - 1].equity >= shown[0].equity;
@@ -68,7 +77,7 @@ export default function EquityChart({ points }: { points: EquityPoint[] }) {
         : "rgba(244, 63, 94, 0.32)",
       bottomColor: "rgba(0, 0, 0, 0)",
       lineWidth: 2,
-      priceFormat: { type: "price", precision: 0, minMove: 1 },
+      priceFormat: { type: "price", precision: 2, minMove: 0.01 },
     });
     const seen = new Set<number>();
     series.setData(
@@ -131,7 +140,11 @@ export default function EquityChart({ points }: { points: EquityPoint[] }) {
           ))}
         </div>
       </div>
-      <div className={styles.chart} ref={containerRef} style={{ height: 220 }} />
+      <div
+        className={styles.chart}
+        ref={containerRef}
+        style={{ height: 220 }}
+      />
     </div>
   );
 }

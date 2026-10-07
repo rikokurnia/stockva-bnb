@@ -15,8 +15,6 @@ import {
   defFor,
   money,
   pct,
-  priceOf,
-  returnOf,
   sprite,
   tier,
   tierName,
@@ -54,8 +52,16 @@ export default function CompanyIntel(p: Props) {
     [retry, setRetry] = useState(0);
   const root = useRef<HTMLDivElement>(null),
     id = useId();
-  const gain = p.simulatedReturn ?? returnOf(p.building, p.prices),
-    level = tier(gain, p.thresholds),
+  const quoteAvailable =
+    !!p.quote &&
+    p.quote.price > 0 &&
+    (p.quote.status === "live" || p.quote.status === "stale");
+  const gain =
+    quoteAvailable && p.building.entry > 0
+      ? (p.quote!.price / p.building.entry - 1) * 100
+      : 0;
+  const gainAvailable = quoteAvailable && p.building.entry > 0;
+  const level = tier(gain, p.thresholds),
     status = portfolioStatus(gain);
   useEffect(() => {
     const trigger = document.activeElement as HTMLElement;
@@ -167,14 +173,7 @@ export default function CompanyIntel(p: Props) {
             <div className={styles.buildingArt}>
               <span className={styles.levelStamp}>{tierName(level)}</span>
               <img
-                src={sprite(
-                  buildingImage(
-                    p.building,
-                    p.prices,
-                    p.thresholds,
-                    p.simulatedReturn,
-                  ),
-                )}
+                src={sprite(buildingImage(p.building, p.prices, p.thresholds))}
                 alt={`${asset.name} ${tierName(level)} building`}
               />
               <strong
@@ -186,29 +185,25 @@ export default function CompanyIntel(p: Props) {
                       : styles.flat
                 }
               >
-                {portfolioPercent(gain)}
+                {gainAvailable ? portfolioPercent(gain) : "—"}
               </strong>
               <small>
-                {p.simulatedReturn !== undefined ? (
-                  <span className={styles.simBadge}>
-                    PREVIEW · {p.running ? "RUNNING" : "PAUSED"}
-                  </span>
-                ) : (
-                  <span className={styles.liveBadge}>
-                    <span
-                      className={styles.livePulseDot}
-                      style={{ width: 5, height: 5 }}
-                    />
-                    24/7 LIVE RWA MARKET
-                  </span>
-                )}
+                <span className={styles.liveBadge}>
+                  {quoteAvailable
+                    ? p.quote?.status === "stale"
+                      ? "STALE BSC TOKEN OBSERVATION"
+                      : "BSC TOKEN OBSERVATION"
+                    : "PRICE UNAVAILABLE"}
+                </span>
               </small>
             </div>
           </section>
           <div className={styles.quoteStrip}>
             <div>
-              <span>24/7 RWA Quote · {p.quote?.status ?? "fallback"}</span>
-              <strong>{money(priceOf(asset.ticker, p.prices))}</strong>
+              <span>
+                BSC token observation · {p.quote?.status ?? "unavailable"}
+              </span>
+              <strong>{quoteAvailable ? money(p.quote!.price) : "—"}</strong>
             </div>
             <div>
               <span>Units owned</span>
@@ -216,15 +211,12 @@ export default function CompanyIntel(p: Props) {
             </div>
             <div>
               <span>Average entry</span>
-              <strong>{money(p.building.entry)}</strong>
+              <strong>
+                {p.building.entry > 0 ? money(p.building.entry) : "Unavailable"}
+              </strong>
             </div>
           </div>
-          {p.simulatedReturn !== undefined && (
-            <p className={styles.simNotice}>
-              Building tier and returns reflect current visual performance. The
-              on-chain token quote above remains the latest 24/7 price.
-            </p>
-          )}
+
           {profile && (
             <div className={styles.brief}>
               <div>

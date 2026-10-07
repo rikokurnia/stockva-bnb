@@ -121,7 +121,7 @@ export function buildSystemPrompt(snap: Snapshot, hall?: HallAnalysis): string {
     `Total stock value: ${snap.totalValue !== undefined ? `$${snap.totalValue.toFixed(2)}` : "unknown"}`,
   );
   lines.push(
-    `Wallet: ${snap.walletConnected ? `connected, ${snap.onchainCount ?? 0} on-chain vault position(s)` : "not connected"}`,
+    `Wallet: ${snap.walletConnected ? `connected, ${snap.onchainCount ?? 0} mainnet token holding(s)` : "not connected"}`,
   );
   if (snap.holdings?.length) {
     lines.push("Buildings:");
@@ -136,7 +136,7 @@ export function buildSystemPrompt(snap: Snapshot, hall?: HallAnalysis): string {
         h.value !== undefined ? `value $${h.value.toFixed(2)}` : "",
         h.returnPct !== undefined ? `return ${h.returnPct.toFixed(1)}%` : "",
         h.tier !== undefined ? `tier ${h.tier}` : "",
-        h.onchain ? "on-chain" : "local-sim",
+        h.onchain ? "on-chain" : "unverified layout",
         h.active === false ? "closed" : "",
       ].filter(Boolean);
       lines.push(`- ${parts.join(" · ")}`);
@@ -144,6 +144,7 @@ export function buildSystemPrompt(snap: Snapshot, hall?: HallAnalysis): string {
   } else {
     lines.push("Buildings: none yet (empty island).");
   }
+  lines.push("Holdings are a client-provided snapshot of a BSC wallet, not independent verification. Do not invent missing prices, quantities, performance or cost basis. You cannot execute trades or schedule actions.");
   if (snap.marketNote) lines.push(`Market: ${snap.marketNote}`);
   lines.push(
     "Reply now in the user's language (default clear friendly English; Bahasa Indonesia if they write in it). Under 80 words. Plain text only: no #, no *, no backticks, no markdown links, no asterisk actions. Always finish your final sentence completely — never stop or trail off mid-word.",

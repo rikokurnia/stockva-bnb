@@ -22,6 +22,7 @@ type Props = {
   compare?: boolean;
   simulated?: boolean;
   ticker?: string;
+  contract?: string;
   tokenName?: string;
   benchmarkName?: string;
   defaultPrice?: number;
@@ -40,6 +41,7 @@ export default function TradingChart({
   compare = false,
   simulated = false,
   ticker,
+  contract,
   tokenName,
   benchmarkName = "Underlying Stock",
   defaultPrice,
@@ -54,145 +56,70 @@ export default function TradingChart({
   const [timeframe, setTimeframe] = useState<Timeframe>("1d");
   const [hoverData, setHoverData] = useState<HoverState | null>(null);
 
-  // Active current price prioritizing live real-time price
-  const activePrice = livePrice ?? defaultPrice ?? 0;
+  const activePrice =
+    livePrice !== undefined && Number.isFinite(livePrice) && livePrice > 0
+      ? livePrice
+      : undefined;
 
-  // Clean and prepare dataset based on selected timeframe
+  // Only provider observations appear on the chart. Current quote display does
+  // not alter timestamps or fill gaps in the historical series.
   const { tokenData, benchmarkData, latestToken, priceChangePct, isPositive } =
     useMemo(() => {
-      const nowSec = Math.floor(Date.now() / 1000) as UTCTimestamp;
-      const basePrice = activePrice > 0 ? activePrice : 100;
-      const seenToken = new Set<number>();
-      const seenBench = new Set<number>();
-
-      let tokenSeries: { time: UTCTimestamp; value: number }[] = [];
-      let benchSeries: { time: UTCTimestamp; value: number }[] = [];
-
-      if (timeframe === "1h") {
-        // High-frequency 1-hour view: 30 data points spaced 2 minutes apart leading to live price
-        for (let i = 30; i >= 0; i--) {
-          const t = (nowSec - i * 120) as UTCTimestamp;
-          const noise =
-            Math.sin(i * 0.45) * 0.0025 + Math.cos(i * 0.2) * 0.0015;
-          const trendDrift =
-            ((30 - i) / 30) * ((liveChange ?? 0.5) / 100) * 0.25;
-          const val = Number((basePrice * (1 - trendDrift + noise)).toFixed(2));
-          tokenSeries.push({ time: t, value: val });
-          if (compare) {
-            const benchNoise = Math.sin(i * 0.6) * 0.001;
-            benchSeries.push({
-              time: t,
-              value: Number((val * (1 + benchNoise)).toFixed(2)),
-            });
-          }
-        }
-      } else {
-        // 1d (last 24-48 hours) or 1w (last 168 hours = 7 days)
-        const sorted = [...points].sort((a, b) => a.time - b.time);
-        const limitCount = timeframe === "1d" ? 48 : 168;
-        const sliced = sorted.slice(-limitCount);
-
-        for (const p of sliced) {
-          const sec = Math.floor(p.time / 1000) as UTCTimestamp;
-          const primaryVal =
-            p.token !== undefined && !Number.isNaN(p.token)
-              ? p.token
-              : p.benchmark;
-
-          if (
-            primaryVal !== undefined &&
-            !Number.isNaN(primaryVal) &&
-            !seenToken.has(sec)
-          ) {
-            seenToken.add(sec);
-            tokenSeries.push({
-              time: sec,
-              value: Number(primaryVal.toFixed(2)),
-            });
-          }
-
-          if (
-            compare &&
-            p.benchmark !== undefined &&
-            p.token !== undefined &&
-            !Number.isNaN(p.benchmark) &&
-            !seenBench.has(sec)
-          ) {
-            seenBench.add(sec);
-            benchSeries.push({
-              time: sec,
-              value: Number(p.benchmark.toFixed(2)),
-            });
-          }
-        }
-
-        // If dataset is sparse, extrapolate full 7-day or 24h history
-        if (tokenSeries.length < 5) {
-          tokenSeries = [];
-          benchSeries = [];
-          const count = timeframe === "1d" ? 36 : 168;
-          for (let i = count; i >= 0; i--) {
-            const t = (nowSec - i * 3600) as UTCTimestamp;
-            const wave =
-              Math.sin(i * 0.12) * 0.012 + Math.cos(i * 0.06) * 0.008;
-            const trend = ((count - i) / count) * ((liveChange ?? 0.8) / 100);
-            const val = Number((basePrice * (1 - trend + wave)).toFixed(2));
-            tokenSeries.push({ time: t, value: val });
-            if (compare) {
-              const spread = Math.sin(i * 0.4) * 0.0015;
-              benchSeries.push({
-                time: t,
-                value: Number((val * (1 + spread)).toFixed(2)),
-              });
-            }
-          }
-        }
-
-        // Connect the latest historical point to the real-time live price!
-        if (tokenSeries.length > 0 && activePrice > 0) {
-          const lastPoint = tokenSeries[tokenSeries.length - 1];
-          if (nowSec > lastPoint.time) {
-            tokenSeries.push({
-              time: nowSec,
-              value: Number(activePrice.toFixed(2)),
-            });
-          } else {
-            tokenSeries[tokenSeries.length - 1].value = Number(
-              activePrice.toFixed(2),
-            );
-          }
-        }
+      const windowMs =
+        timeframe === "1h"
+          ? 3600000
+          : timeframe === "1d"
+            ? 86400000
+            : 7 * 86400000;
+      const cutoff = Date.now() - windowMs;
+      const tokens = new Map<number, number>();
+      const references = new Map<number, number>();
+      for (const point of simulated
+        ? []
+        : [...points].sort((a, b) => a.time - b.time)) {
+        if (
+          !Number.isFinite(point.time) ||
+          point.time < cutoff ||
+          point.time > Date.now()
+        )
+          continue;
+        const time = Math.floor(point.time / 1000);
+        if (
+          point.token !== undefined &&
+          Number.isFinite(point.token) &&
+          point.token > 0
+        )
+          tokens.set(time, point.token);
+        if (
+          compare &&
+          point.benchmark !== undefined &&
+          Number.isFinite(point.benchmark) &&
+          point.benchmark > 0
+        )
+          references.set(time, point.benchmark);
       }
-
-      const first = tokenSeries[0]?.value ?? basePrice;
-      const last = tokenSeries[tokenSeries.length - 1]?.value ?? basePrice;
-      const calculatedChange = first > 0 ? ((last - first) / first) * 100 : 0;
-      const finalChange =
-        liveChange !== undefined ? liveChange : calculatedChange;
-
+      const tokenSeries = [...tokens].map(([time, value]) => ({
+        time: time as UTCTimestamp,
+        value,
+      }));
+      const benchSeries = [...references].map(([time, value]) => ({
+        time: time as UTCTimestamp,
+        value,
+      }));
+      const first = tokenSeries[0]?.value;
+      const last = tokenSeries.at(-1)?.value;
+      const change =
+        first !== undefined && last !== undefined && tokenSeries.length > 1
+          ? ((last - first) / first) * 100
+          : undefined;
       return {
         tokenData: tokenSeries,
         benchmarkData: benchSeries,
         latestToken: last,
-        priceChangePct: finalChange,
-        isPositive: finalChange >= 0,
+        priceChangePct: change,
+        isPositive: change === undefined || change >= 0,
       };
-    }, [points, timeframe, activePrice, liveChange, compare]);
-
-  // Real-time update streaming: when livePrice changes, update the last bar
-  useEffect(() => {
-    if (!tokenSeriesRef.current || !activePrice || Number.isNaN(activePrice))
-      return;
-    const nowSec = Math.floor(Date.now() / 1000) as UTCTimestamp;
-    try {
-      tokenSeriesRef.current.update({
-        time: nowSec,
-        value: Number(activePrice.toFixed(2)),
-      });
-    } catch {
-      // ignore potential microsecond order race
-    }
-  }, [activePrice]);
+    }, [points, timeframe, compare, simulated]);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -397,20 +324,18 @@ export default function TradingChart({
       : priceChangePct;
 
   return (
-    <div className={styles.container}>
+    <div className={styles.container} data-token-contract={contract}>
       <div className={styles.topBar}>
         <div className={styles.priceDisplay}>
-          <span className={styles.currentPrice}>{money(displayedPrice)}</span>
+          <span className={styles.currentPrice}>
+            {displayedPrice !== undefined ? money(displayedPrice) : "—"}
+          </span>
           <span
-            className={`${styles.priceChange} ${displayedChange >= 0 ? styles.up : styles.down}`}
+            className={`${styles.priceChange} ${displayedChange === undefined || displayedChange >= 0 ? styles.up : styles.down}`}
           >
-            {displayedChange >= 0 ? "+" : ""}
-            {displayedChange.toFixed(2)}%
+            {displayedChange !== undefined ? pct(displayedChange) : "—"}
           </span>
-          <span className={styles.liveIndicator}>
-            <span className={styles.livePulse} />
-            LIVE
-          </span>
+          <span className={styles.liveIndicator}>OBSERVED</span>
         </div>
         <div className={styles.timeframeGroup}>
           {(["1h", "1d", "1w"] as Timeframe[]).map((tf) => (
@@ -465,7 +390,9 @@ export default function TradingChart({
         {tokenData.length > 0 ? (
           <div ref={containerRef} className={styles.chartCanvas} />
         ) : (
-          <div className={styles.emptyOverlay}>Loading live price history…</div>
+          <div className={styles.emptyOverlay}>
+            No token observations available for this period.
+          </div>
         )}
       </div>
 

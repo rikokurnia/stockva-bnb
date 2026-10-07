@@ -1,7 +1,7 @@
 "use client";
 
 import { PrivyProvider } from "@privy-io/react-auth";
-import { bscTestnet } from "viem/chains";
+import { bsc } from "viem/chains";
 import type { ReactNode } from "react";
 
 const PRIVY_APP_ID =
@@ -22,8 +22,8 @@ export default function Providers({ children }: { children: ReactNode }) {
           showWalletLoginFirst: true,
           logo: "/assets/ai_logo.png",
         },
-        defaultChain: bscTestnet,
-        supportedChains: [bscTestnet],
+        defaultChain: bsc,
+        supportedChains: [bsc],
       }}
     >
       {children}

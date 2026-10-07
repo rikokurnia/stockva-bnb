@@ -7,22 +7,24 @@ const cache = new Map<string, { at: number; body: unknown }>();
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const ticker = (searchParams.get("ticker") ?? "").trim().toUpperCase();
+  const contract = searchParams.get("contract");
+  if (contract && !/^0x[0-9a-fA-F]{40}$/.test(contract))
+    return NextResponse.json({ available: false }, { status: 400 });
   if (!assets.some((a) => a.ticker === ticker))
     return NextResponse.json({ available: false }, { status: 400 });
   if (!rwaConfigured()) return NextResponse.json({ available: false });
-  const hit = cache.get(ticker);
-  if (hit && Date.now() - hit.at < 300000)
-    return NextResponse.json(hit.body);
+  const cacheKey = `${ticker}:${contract?.toLowerCase() ?? "primary"}`;
+  const hit = cache.get(cacheKey);
+  if (hit && Date.now() - hit.at < 300000) return NextResponse.json(hit.body);
   try {
-    const company = await rwaCompany(ticker);
-    if (!company)
-      return NextResponse.json({ available: false, ticker });
+    const company = await rwaCompany(ticker, contract);
+    if (!company) return NextResponse.json({ available: false, ticker });
     const body = {
       available: true,
       fetchedAt: new Date().toISOString(),
       ...company,
     };
-    cache.set(ticker, { at: Date.now(), body });
+    cache.set(cacheKey, { at: Date.now(), body });
     return NextResponse.json(body, {
       headers: {
         "Cache-Control": "public, s-maxage=300, stale-while-revalidate=300",

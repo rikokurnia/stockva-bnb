@@ -1,8 +1,8 @@
 // Local equity-history store: snapshots of total equity (invested + cash)
-// recorded as the city evolves. No backfill is ever fabricated — the curve
+// recorded from mainnet wallet values. Legacy city histories use a separate key. No backfill is ever fabricated — the curve
 // and daily P&L only cover days the game actually ran.
 export type EquityPoint = { t: number; equity: number };
-const KEY = "stockcity.equity-history.v1";
+const KEY = "stockcity.mainnet.equity-history.v1";
 const MAX_POINTS = 400;
 const MIN_GAP_MS = 6 * 3600 * 1000;
 

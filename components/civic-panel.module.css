@@ -1811,3 +1811,46 @@
   background: var(--soft-hover);
   color: #ffffff;
 }
+
+/* City Hall can also appear in the mainnet dialog without the legacy panel. */
+.mainnetHall {
+  --ink: #edf2f3;
+  --subtle: #a9bac4;
+  --muted: #7994a3;
+  --accent: #f0b90b;
+  --accent-hover: #fcd535;
+  --accent-blue: #38bdf8;
+  --paper: #1e323d;
+  --surface: #253d4a;
+  --surface-hover: #304b59;
+  --line: #526977;
+  --line-subtle: #3c5360;
+  --control-line: #66818e;
+  --soft: #132630;
+  --soft-hover: #304b59;
+  --negative: #f87171;
+  --positive: #10b981;
+  --reference: #38bdf8;
+  color: var(--ink);
+  min-width: 0;
+}
+.mainnetHall .summaryStrip strong {
+  overflow-wrap: anywhere;
+  font-size: 20px;
+}
+.mainnetHall .transaction {
+  gap: 16px;
+  overflow-wrap: anywhere;
+}
+.mainnetHall :is(button, a):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+.mainnetHall .treasury {
+  display: block;
+}
+@media (max-width: 700px) {
+  .mainnetHall .transaction {
+    flex-wrap: wrap;
+  }
+}

@@ -1,102 +1,119 @@
 import { NextRequest, NextResponse } from "next/server";
 import { assets } from "../../../lib/city";
 import { type HistoryFeed, type PricePoint } from "../../../lib/market";
+import { listMainnetAssets } from "../../../lib/trading-server";
+import { binanceRequest } from "../../../lib/binance-web3";
+import {
+  parseBscCandles,
+  selectMainnetAsset,
+} from "../../../lib/market-observations";
+
+export const runtime = "nodejs";
+const ranges = new Set(["1d", "5d", "1mo", "3mo", "6mo", "1y"]);
+const intervals = new Set(["2m", "5m", "15m", "30m", "60m", "1d"]);
+
 export async function GET(request: NextRequest) {
   const ticker = request.nextUrl.searchParams.get("ticker") ?? "";
-  const asset = assets.find((a) => a.ticker === ticker);
-  if (!asset)
+  if (!assets.some((asset) => asset.ticker === ticker))
     return NextResponse.json({ error: "Unknown asset" }, { status: 400 });
-  const pair = request.nextUrl.searchParams.get("pair");
-  if (pair && !/^[A-Za-z0-9]{3,25}$/.test(pair))
-    return NextResponse.json({ error: "Invalid pair" }, { status: 400 });
+  const contract = request.nextUrl.searchParams.get("contract");
+  if (contract && !/^0x[0-9a-fA-F]{40}$/.test(contract))
+    return NextResponse.json(
+      { error: "Invalid token contract" },
+      { status: 400 },
+    );
   const range = request.nextUrl.searchParams.get("range") ?? "1mo";
-  const interval =
-    request.nextUrl.searchParams.get("interval") ??
-    (range === "1d"
-      ? "2m"
-      : range === "5d"
-        ? "5m"
-        : range === "1mo" || range === "3mo"
-          ? "15m"
-          : "60m");
-  const krakenInterval =
-    range === "1d" ? 5 : range === "5d" ? 15 : range === "1mo" ? 60 : 1440;
-
+  const interval = request.nextUrl.searchParams.get("interval") ?? "15m";
+  if (!ranges.has(range) || !intervals.has(interval))
+    return NextResponse.json(
+      { error: "Unsupported history period" },
+      { status: 400 },
+    );
   const output: HistoryFeed = {
     points: [],
     simulated: false,
-    tokenSource: "Token history unavailable",
-    benchmarkSource: "Unavailable",
+    tokenSource: "BSC token history unavailable",
+    benchmarkSource: "Underlying reference unavailable",
   };
+  const points = new Map<number, PricePoint>();
   const [token, stock] = await Promise.allSettled([
-    pair
-      ? fetch(
-          `https://api.kraken.com/0/public/OHLC?pair=${encodeURIComponent(pair)}&interval=${krakenInterval}&asset_class=tokenized_asset`,
-          { signal: AbortSignal.timeout(8000), next: { revalidate: 60 } },
-        ).then((r) => r.json())
-      : Promise.resolve(null),
+    listMainnetAssets().then(async (rows) => {
+      const asset = selectMainnetAsset(rows, ticker, contract);
+      if (!asset) return null;
+      const bar =
+        range === "1d"
+          ? "5m"
+          : range === "5d"
+            ? "15m"
+            : range === "1mo"
+              ? "1h"
+              : "1d";
+      const rowsOfCandles = await binanceRequest<unknown>(
+        "/api/v1/dex/market/candles",
+        {
+          binanceChainId: "56",
+          tokenContractAddress: asset.address,
+          bar,
+          limit: "500",
+        },
+      );
+      return { asset, observations: parseBscCandles(rowsOfCandles) };
+    }),
     fetch(
       `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker.replace(".", "-"))}?interval=${interval}&range=${range}`,
       {
-        signal: AbortSignal.timeout(8000),
+        signal: AbortSignal.timeout(8_000),
         headers: { "User-Agent": "Mozilla/5.0" },
         next: { revalidate: 60 },
       },
-    ).then((r) => r.json()),
+    ).then(async (response) => {
+      if (!response.ok) throw new Error("Underlying reference unavailable");
+      return response.json();
+    }),
   ]);
-  const points = new Map<number, PricePoint>();
-  if (
-    token.status === "fulfilled" &&
-    token.value?.result &&
-    !token.value.error?.length
-  ) {
-    const rows = Object.entries(token.value.result).find(
-      ([key]) => key !== "last",
-    )?.[1];
-    if (Array.isArray(rows))
-      for (const row of rows.slice(-720)) {
-        const time = Number(row[0]) * 1000;
-        const price = Number(row[4]);
-        if (Number.isFinite(time) && Number.isFinite(price) && price > 0)
-          points.set(time, { time, token: price });
-      }
-    if (points.size) {
-      output.simulated = false;
-      output.tokenSource =
-        krakenInterval === 1440
-          ? "Kraken · daily close"
-          : "Kraken · token observation";
-      output.tokenAt = new Date(Math.max(...points.keys())).toISOString();
+  if (token.status === "fulfilled" && token.value) {
+    const { asset, observations } = token.value;
+    for (const point of observations) points.set(point.time, point);
+    output.contract = asset.address;
+    output.chainId = 56;
+    if (observations.length) {
+      output.tokenSource = `Binance Web3 · BSC ${asset.symbol} candle closes`;
+      output.tokenAt = new Date(observations.at(-1)!.time).toISOString();
     }
   }
   if (stock.status === "fulfilled") {
     const result = stock.value?.chart?.result?.[0];
     const price = Number(result?.meta?.regularMarketPrice);
+    const time = Number(result?.meta?.regularMarketTime);
     if (
       Number.isFinite(price) &&
       price > 0 &&
-      Number.isFinite(result?.meta?.regularMarketTime)
+      Number.isFinite(time) &&
+      time > 0
     ) {
       output.benchmarkPrice = price;
-      output.benchmarkAt = new Date(
-        result.meta.regularMarketTime * 1000,
-      ).toISOString();
-      output.benchmarkSource = "Yahoo Finance · delayed reference";
+      output.benchmarkAt = new Date(time * 1000).toISOString();
+      output.benchmarkSource = "Yahoo Finance · delayed underlying reference";
       output.exchange = result.meta.exchangeName;
-      result.timestamp?.forEach((time: number, i: number) => {
-        const close = result.indicators?.quote?.[0]?.close?.[i];
-        if (typeof close === "number" && Number.isFinite(close) && close > 0) {
-          const key = time * 1000;
-          const existing = points.get(key);
-          points.set(key, {
-            ...existing,
-            time: key,
-            benchmark: close,
-          });
+      result.timestamp?.forEach((at: number, index: number) => {
+        const close = result.indicators?.quote?.[0]?.close?.[index];
+        if (
+          Number.isFinite(at) &&
+          typeof close === "number" &&
+          Number.isFinite(close) &&
+          close > 0
+        ) {
+          const key = at * 1000;
+          points.set(key, { ...points.get(key), time: key, benchmark: close });
         }
       });
     }
   }
   output.points = [...points.values()].sort((a, b) => a.time - b.time);
-  return NextResponse.json(output);
+  if (!output.points.some((point) => point.token !== undefined))
+    output.error =
+      "No observed BSC token history is available. Underlying references are separate research data.";
+  return NextResponse.json(output, {
+    headers: { "Cache-Control": "no-store" },
+  });
 }

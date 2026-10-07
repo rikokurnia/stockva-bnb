@@ -99,7 +99,7 @@ export default function CivicResearch(props: Props) {
   );
   const update = revision + localRevision;
   const history = useResource<HistoryFeed>(
-    `/api/history?ticker=${encodeURIComponent(ticker)}${quote?.pair ? `&pair=${encodeURIComponent(quote.pair)}` : ""}&range=1mo&interval=15m`,
+    `/api/history?ticker=${encodeURIComponent(ticker)}${quote?.contract ? `&contract=${encodeURIComponent(quote.contract)}` : ""}&range=1mo&interval=15m`,
     60000,
     update,
   );
@@ -116,7 +116,9 @@ export default function CivicResearch(props: Props) {
     update,
   );
   const passport = useResource<Passport>(
-    inspection ? `/api/passport?ticker=${encodeURIComponent(ticker)}` : null,
+    inspection
+      ? `/api/passport?ticker=${encodeURIComponent(ticker)}${quote?.contract ? `&contract=${encodeURIComponent(quote.contract)}` : ""}`
+      : null,
     300000,
     update,
   );
@@ -147,19 +149,17 @@ export default function CivicResearch(props: Props) {
     (props.city.paper ?? [])
       .filter((holding) => holding.ticker === ticker)
       .reduce((sum, holding) => sum + holding.quantity, 0);
-  const quoteLabel =
-    quote?.status === "fallback" || !quote
-      ? "Illustrative city price"
-      : quote.status === "stale"
-        ? "Stale quote"
-        : quote.pair
-          ? "Token · last trade"
-          : quote.tokenName
-            ? "Token · indicative"
-            : "Underlying reference";
-  const changeAvailable = Boolean(
-    quote && (quote.pair || !quote.tokenName) && quote.status !== "fallback",
-  );
+  const quoteAvailable =
+    !!quote &&
+    quote.status !== "unavailable" &&
+    quote.status !== "fallback" &&
+    quote.price > 0;
+  const quoteLabel = !quoteAvailable
+    ? "BSC token price unavailable"
+    : quote.status === "stale"
+      ? "Stale BSC token observation"
+      : "BSC token observation";
+  const changeAvailable = quoteAvailable && quote.changeAvailable === true;
   return (
     <>
       <div className={styles.assetHeader}>
@@ -174,7 +174,7 @@ export default function CivicResearch(props: Props) {
           </div>
         </div>
         <div className={styles.assetPrice}>
-          <strong>{money(priceOf(ticker, prices))}</strong>
+          <strong>{quoteAvailable ? money(quote.price) : "—"}</strong>
           <small>
             {quoteLabel}
             {changeAvailable ? ` · ${pct(quote!.change)}` : ""}
@@ -183,7 +183,8 @@ export default function CivicResearch(props: Props) {
       </div>
       <div className={styles.quoteMeta}>
         <span>
-          {quote?.source ?? "City fallback"} · fetched {stamp(quote?.fetchedAt)}
+          {quote?.source ?? "Provider unavailable"} · fetched{" "}
+          {stamp(quote?.fetchedAt)}
         </span>
         <span>Quotes refresh about every 60s</span>
       </div>
@@ -439,7 +440,7 @@ export default function CivicResearch(props: Props) {
                   onClick={() => {
                     const def = catalogue.find((d) => d.ticker === ticker);
                     if (def) {
-                      props.onBuy(def.kind, 500);
+                      props.onBuy(def.kind, 1);
                     }
                   }}
                 >
@@ -480,6 +481,7 @@ export default function CivicResearch(props: Props) {
       {inspection && (
         <TokenInspection
           ticker={ticker}
+          contract={quote?.contract}
           passport={passport.data}
           loading={passport.loading}
           history={history.data}
@@ -512,6 +514,7 @@ export default function CivicResearch(props: Props) {
 }
 function TokenInspection({
   ticker,
+  contract,
   passport,
   loading,
   history,
@@ -521,6 +524,7 @@ function TokenInspection({
   onRetry,
 }: {
   ticker: string;
+  contract?: string;
   passport: Passport | null;
   loading: boolean;
   history: HistoryFeed | null;
@@ -535,7 +539,11 @@ function TokenInspection({
   const [copyError, setCopyError] = useState("");
   const rwaPassport = useResource<
     { available: boolean; fetchedAt?: string } & Partial<RwaCompany>
-  >(`/api/rwa/passport?ticker=${encodeURIComponent(ticker)}`, 300000, 0);
+  >(
+    `/api/rwa/passport?ticker=${encodeURIComponent(ticker)}${contract ? `&contract=${encodeURIComponent(contract)}` : ""}`,
+    300000,
+    0,
+  );
   const deployment = passport?.deployments[network];
   const reserve = passport?.reserve;
   const staleReserve = reserve
@@ -694,8 +702,8 @@ function TokenInspection({
                     </p>
                   )}
                   <p className={styles.caption}>
-                    These are the real issuer token deployments. City Hall’s BNB
-                    testnet vault is a different contract.
+                    This is the selected issuer token contract on BSC mainnet.
+                    Tokens are held directly in your wallet.
                   </p>
                 </>
               ) : (
@@ -821,8 +829,10 @@ function TokenInspection({
                 </Fact>
                 {rwaPassport.data.spread.high52W != null && (
                   <Fact label="52-week range">
-                    {money(rwaPassport.data.spread.low52W ?? 0)} –{" "}
-                    {money(rwaPassport.data.spread.high52W)}
+                    {rwaPassport.data.spread.low52W
+                      ? money(rwaPassport.data.spread.low52W)
+                      : "Unavailable"}{" "}
+                    – {money(rwaPassport.data.spread.high52W)}
                   </Fact>
                 )}
               </dl>
@@ -879,7 +889,10 @@ function TokenInspection({
                 >
                   Auditor reports & reserve attestations
                 </span>
-                <div className={styles.sourceLinks} style={{ marginTop: "6px" }}>
+                <div
+                  className={styles.sourceLinks}
+                  style={{ marginTop: "6px" }}
+                >
                   {rwaPassport.data.attestations!.map((att) => (
                     <a
                       key={att.url}

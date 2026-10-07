@@ -949,7 +949,7 @@ export const catalogue: BuildingDef[] = [
     image: "functional/agent_hall",
     cost: 350,
     description:
-      "Cokoo’s command center. Explore portfolio allocation, preview baskets and stress-test your city.",
+      "Ask Cokoo about your current wallet holdings. The advisor provides analysis and cannot execute trades.",
   },
   {
     kind: "hall",
@@ -958,7 +958,7 @@ export const catalogue: BuildingDef[] = [
     image: "functional/portfolio_city_hall",
     cost: 250,
     description:
-      "Your city headquarters. Select it to inspect city finances and your portfolio.",
+      "Your city headquarters. Inspect real wallet balances, issuer-token holdings and confirmed trades.",
   },
   {
     kind: "exchange",
@@ -976,7 +976,7 @@ export const catalogue: BuildingDef[] = [
     image: "functional/oracle_data_center",
     cost: 300,
     description:
-      "Your city’s information hub. Select it to inspect on-chain city data.",
+      "Inspect BSC issuer contracts, observed token prices and token details.",
   },
   {
     kind: "monument",
@@ -1334,7 +1334,11 @@ export type Building = Cell & {
   /** True while the building is an unpaid draft: ghost on the map,
    * excluded from portfolio until the on-chain purchase confirms. */
   locked?: boolean;
-  /** On-chain receipt for stock buildings recorded via StockCityVault. */
+  /** Mainnet issuer token represented by this visual building. */
+  tokenAddress?: `0x${string}`;
+  tokenDecimals?: number;
+  owner?: `0x${string}`;
+  /** Confirmed receipt; legacy vault fields are read only by retired modules. */
   vaultTx?: `0x${string}`;
   vaultId?: string;
 };
@@ -1381,8 +1385,8 @@ export type CityState = {
     positionId: `0x${string}`;
   }[];
 };
-export const STORAGE = "stockva.sandbox.v2";
-export const ROAD_COST = 10;
+export const STORAGE = "stockva.mainnet.layout.v1";
+export const ROAD_COST = 0;
 export const newCity = (): CityState => ({
   version: 2,
   cash: 0,
@@ -1423,7 +1427,7 @@ export const wholeMoney = (n: number) =>
 export const pct = (n: number) => `${n >= 0 ? "+" : ""}${n.toFixed(2)}%`;
 export type PriceMap = Record<string, number>;
 export const basePrices = (): PriceMap =>
-  Object.fromEntries(assets.map((a) => [a.ticker, a.price]));
+  Object.fromEntries(assets.map((a) => [a.ticker, 0]));
 export const MARKET_SOURCE = "Live market pricing";
 export const PROVIDER_TAG = "Tokenized stock position";
 export function tickMarket(prev: PriceMap, rand: () => number = Math.random) {
@@ -1436,13 +1440,13 @@ export function tickMarket(prev: PriceMap, rand: () => number = Math.random) {
   return next;
 }
 export const priceOf = (ticker: string, prices?: PriceMap) =>
-  prices?.[ticker] ?? assetFor(ticker).price;
+  prices?.[ticker] ?? 0;
 export const valueOf = (b: Building, prices?: PriceMap) => {
   const d = defFor(b.kind);
   return d.ticker ? b.quantity * priceOf(d.ticker, prices) : 0;
 };
 export const returnOf = (b: Building, prices?: PriceMap) =>
-  b.entry
+  b.entry && priceOf(defFor(b.kind).ticker!, prices) > 0
     ? ((priceOf(defFor(b.kind).ticker!, prices) - b.entry) / b.entry) * 100
     : 0;
 export type TierThresholds = { minus: number; level2: number; level3: number };
@@ -1578,7 +1582,7 @@ export function txHashFor(id: string) {
   return `0x${hex(h1)}${hex(h2)}${hex(h1 ^ h2)}${hex(h2 ^ 0x9e3779b9)}${hex(h1 + h2)}`;
 }
 export const bscLink = (hash: string) =>
-  `https://testnet.bscscan.com/tx/${hash}`;
+  `https://bscscan.com/tx/${hash}`;
 // A deliberately conservative polygon inside the supplied island's buildable grass.
 export const LAND = [
   [355, 124],

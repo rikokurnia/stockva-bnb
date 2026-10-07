@@ -1,14 +1,12 @@
 // Binance Web3 RWA Data — server-only HTTP + signing.
 // Imported ONLY by API routes. Reads BINANCE_WEB3_API_KEY/SECRET from env;
-// every export degrades to null/false when credentials are absent so the
-// game keeps running on its xStocks/Yahoo chain.
+// Missing credentials or failed sources produce unavailable data.
 //
 // Signing (verified against the community Postman collection pre-request
 // script): preHash = timestamp + METHOD + "/build" + path + ["?" + query] +
 // body, signature = Base64(HMAC-SHA256(secret, preHash)).
 import { createHmac } from "node:crypto";
 import {
-  estimatedSession,
   sessionLabel,
   spreadBps,
   underlyingTicker,
@@ -20,7 +18,7 @@ import {
 } from "./rwa.ts";
 
 const BASE = "https://web3.binance.com/build";
-const CHAIN = process.env.BINANCE_WEB3_RWA_CHAIN_ID ?? "56";
+const CHAIN = "56";
 
 export const rwaConfigured = () =>
   Boolean(
@@ -83,8 +81,7 @@ async function rwaGet<T>(
 
 /** Case-insensitive key scan so minor schema renames don't break parsing. */
 function pick(row: Record<string, unknown>, pattern: RegExp): unknown {
-  for (const [k, v] of Object.entries(row))
-    if (pattern.test(k)) return v;
+  for (const [k, v] of Object.entries(row)) if (pattern.test(k)) return v;
   return undefined;
 }
 const num = (v: unknown): number | null => {
@@ -129,17 +126,33 @@ const underlyingOf = (row: Record<string, unknown>): string | null => {
   return direct || null;
 };
 
-/** All BSC matches for a game ticker (Ondo + BStocks), Ondo first. */
+/** Exact BSC issuer contracts only, with the same issuer order as trading. */
 function bscMatches(
   list: Record<string, unknown>[],
   ticker: string,
 ): Record<string, unknown>[] {
   const matches = list.filter(
-    (r) => isBsc(r) && underlyingOf(r) === ticker,
+    (r) =>
+      isBsc(r) &&
+      underlyingOf(r) === ticker &&
+      /^(ondo|bstock|xstocks)$/i.test(
+        str(pick(r, /platformid|platform/i)) ?? "",
+      ) &&
+      /^0x[0-9a-f]{40}$/i.test(str(pick(r, /contractaddress/i)) ?? ""),
   );
   const rank = (r: Record<string, unknown>) =>
-    str(pick(r, /platformid|platform/i))?.toLowerCase() === "ondo" ? 0 : 1;
-  return matches.sort((a, b) => rank(a) - rank(b));
+    str(pick(r, /platformid|platform/i))?.toLowerCase() === "ondo"
+      ? 0
+      : str(pick(r, /platformid|platform/i))?.toLowerCase() === "bstock"
+        ? 1
+        : 2;
+  return matches.sort(
+    (a, b) =>
+      rank(a) - rank(b) ||
+      String(pick(a, /contractaddress/i)).localeCompare(
+        String(pick(b, /contractaddress/i)),
+      ),
+  );
 }
 
 /** Real session from a tokens-list statusInfo block. Exported for tests. */
@@ -177,7 +190,8 @@ export function sessionFromStatus(statusInfo: unknown): {
     session,
     // The per-share reference only moves during the regular session;
     // overnight/pre/post-market the on-chain leg trades alone.
-    referenceFrozen: !open || (marketStatus !== null && marketStatus !== "regular"),
+    referenceFrozen:
+      !open || (marketStatus !== null && marketStatus !== "regular"),
     nextOpenAt: msToIso(pick(info, /nextopen/i)),
     nextCloseAt: msToIso(pick(info, /nextclose/i)),
     marketStatus,
@@ -226,10 +240,8 @@ export async function rwaSpreadQuotes(
   return out;
 }
 
-/** Aggregate US-market session from spread rows, else estimated clock. */
-export async function rwaSession(
-  tickers: string[],
-): Promise<RwaSession> {
+/** Aggregate provider-reported US-market session; never infer a trading session. */
+export async function rwaSession(tickers: string[]): Promise<RwaSession> {
   const now = new Date().toISOString();
   try {
     const quotes = await rwaSpreadQuotes(tickers.slice(0, 20));
@@ -241,17 +253,16 @@ export async function rwaSession(
         : states.includes("closed")
           ? "closed"
           : "unknown";
-    if (state === "unknown") return { ...estimatedSession(), fetchedAt: now };
-    const nextOpenAt =
-      quotes.map((q) => q.nextOpenAt).find(Boolean) ?? null;
-    const nextCloseAt =
-      quotes.map((q) => q.nextCloseAt).find(Boolean) ?? null;
+    if (state === "unknown") return unavailableSession(now);
+    const nextOpenAt = quotes.map((q) => q.nextOpenAt).find(Boolean) ?? null;
+    const nextCloseAt = quotes.map((q) => q.nextCloseAt).find(Boolean) ?? null;
     const overnight =
       state === "open" && quotes.every((q) => q.referenceFrozen);
     return {
       state,
-      label:
-        overnight ? "Token session open · US reference frozen" : sessionLabel(state, nextOpenAt, nextCloseAt),
+      label: overnight
+        ? "Token session open · US reference frozen"
+        : sessionLabel(state, nextOpenAt, nextCloseAt),
       referenceFrozen: overnight || state === "closed" || state === "halted",
       nextOpenAt,
       nextCloseAt,
@@ -259,14 +270,33 @@ export async function rwaSession(
       fetchedAt: now,
     };
   } catch {
-    return { ...estimatedSession(), fetchedAt: now };
+    return unavailableSession(now);
   }
 }
 
+function unavailableSession(fetchedAt: string): RwaSession {
+  return {
+    state: "unknown",
+    label: "Market session unavailable",
+    nextOpenAt: null,
+    nextCloseAt: null,
+    provenance: "unavailable",
+    fetchedAt,
+  };
+}
+
 /** Company profile + contracts + live spread for the RWA passport. */
-export async function rwaCompany(ticker: string): Promise<RwaCompany | null> {
+export async function rwaCompany(
+  ticker: string,
+  contractAddress?: string | null,
+): Promise<RwaCompany | null> {
   const list = await rwaTokenList();
-  const matches = bscMatches(list, ticker);
+  const matches = bscMatches(list, ticker).filter(
+    (row) =>
+      !contractAddress ||
+      str(pick(row, /contractaddress/i))?.toLowerCase() ===
+        contractAddress.toLowerCase(),
+  );
   if (!matches.length) return null;
   const primary = matches[0];
   const platformOf = (m: Record<string, unknown>) =>
@@ -307,13 +337,11 @@ export async function rwaCompany(ticker: string): Promise<RwaCompany | null> {
       company.symbol =
         str(pick(row, /underlyingsymbol|symbol|ticker/i)) ?? company.symbol;
       company.sector = str(pick(row, /sector|industry/i)) ?? undefined;
-      company.tokenToShareRatio =
-        str(pick(row, /tokentoshare/i)) ?? undefined;
+      company.tokenToShareRatio = str(pick(row, /tokentoshare/i)) ?? undefined;
       const info = oneRow(pick(row, /companyinfo/i));
       if (info) {
         company.website = str(pick(info, /website/i)) ?? undefined;
-        company.description =
-          str(pick(info, /description/i)) ?? undefined;
+        company.description = str(pick(info, /description/i)) ?? undefined;
         if (!company.sector)
           company.sector = str(pick(info, /industry/i)) ?? undefined;
       }
@@ -384,11 +412,20 @@ export async function rwaSectorTabs(
       underlyingTicker(str(pick(row, /symbol/i)) ?? "", known);
     if (!ticker || (known.size > 0 && !known.has(ticker))) continue;
     const platform = str(pick(row, /platformid|platform/i))?.toLowerCase();
-    add(platform === "ondo" ? "Ondo" : platform === "bstock" ? "BStocks" : "RWA", ticker);
+    add(
+      platform === "ondo" ? "Ondo" : platform === "bstock" ? "BStocks" : "RWA",
+      ticker,
+    );
     if (String(pick(row, /assettype/i) ?? "") === "3")
       add("Funds & ETFs", ticker);
     const tags = pick(row, /^tags$/i);
-    if (Array.isArray(tags) && tags.map(String).map((t) => t.toLowerCase()).includes("alpha"))
+    if (
+      Array.isArray(tags) &&
+      tags
+        .map(String)
+        .map((t) => t.toLowerCase())
+        .includes("alpha")
+    )
       add("Alpha picks", ticker);
   }
   return [...groups.entries()]

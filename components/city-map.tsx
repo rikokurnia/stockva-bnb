@@ -19,6 +19,7 @@ import {
   footprint,
   fromPoint,
   hasRoad,
+  validCell,
   placementError,
   point,
   returnOf,
@@ -44,7 +45,7 @@ import portfolioStyles from "./portfolio-view.module.css";
 import RoadNetwork from "./road-network";
 import { cameraBounds } from "../lib/map-geometry";
 import ConstructionProgressBar from "./construction-progress";
-import { bscTxLink } from "../lib/contracts";
+import { bscTxLink } from "../lib/mainnet";
 import agentStyles from "./agent-worksite.module.css";
 
 export type AgentMapActivity = {
@@ -64,6 +65,7 @@ type Props = {
   tool: Tool;
   kind: BuildingKind | null;
   amount: number;
+  freePlacement?: boolean;
   selected: string | null;
   moving: string | null;
   zoom: number;
@@ -297,19 +299,21 @@ export default function CityMap(props: Props) {
   const isBuild = tool === "build" || tool === "move";
   const footprintError =
     hover && isBuild ? placementError(hover, city, moving ?? undefined) : "";
-  const previewError = roadError(
-    preview.length ? preview : hover ? [hover] : [],
-    city,
-  );
+  const drawCells = preview.length ? preview : hover ? [hover] : [];
+  const previewError = props.freePlacement
+    ? drawCells.some((cell) => !validCell(cell) || buildingAt(cell, city))
+      ? "Keep roads on the island and clear of buildings"
+      : ""
+    : roadError(drawCells, city);
   const buildingDef = kind ? defFor(kind) : null;
   const cost = buildingDef?.ticker ? amount : (buildingDef?.cost ?? 0);
   const actualError =
     footprintError ||
-    (tool === "build" &&
+    (!props.freePlacement &&
+    tool === "build" &&
     (cost > city.cash || !Number.isFinite(cost) || cost < 1)
       ? "Not enough funds"
       : "");
-  const drawCells = preview.length ? preview : hover ? [hover] : [];
   const plannedRoads = [
     ...city.roads,
     ...drawCells.filter((c) => !city.roads.some((r) => sameCell(c, r))),
@@ -319,10 +323,10 @@ export default function CityMap(props: Props) {
   const tooltip =
     tool === "road"
       ? previewError ||
-        `${wholeMoney(drawCells.filter((c) => !city.roads.some((r) => sameCell(r, c))).length * ROAD_COST)} · ${drawCells.length > 1 ? "Release to build" : "Drag to draw road"}`
+        `${props.freePlacement ? "Free" : wholeMoney(drawCells.filter((c) => !city.roads.some((r) => sameCell(r, c))).length * ROAD_COST)} · ${drawCells.length > 1 ? "Release to build" : "Drag to draw road"}`
       : isBuild
         ? actualError ||
-          `${tool === "move" ? "Move here" : wholeMoney(cost) + " · Click to place"}`
+          `${tool === "move" ? "Move here" : (props.freePlacement ? "Free" : wholeMoney(cost)) + " · Click to place"}`
         : tool === "bulldoze"
           ? hoveredBuilding
             ? `Remove ${defFor(hoveredBuilding.kind).name}`
@@ -570,7 +574,7 @@ export default function CityMap(props: Props) {
                       }
                     }
                   }}
-                  aria-label={`${def.name} building${b.locked ? ", locked unpaid" : ""}`}
+                  aria-label={`${def.name} building${b.locked ? ", wallet holding unavailable" : ""}`}
                   tabIndex={tool === "inspect" ? 0 : -1}
                 >
                   {isUnderConstruction && !isAgentTarget && (
@@ -640,8 +644,8 @@ export default function CityMap(props: Props) {
                   {def.ticker && !isHeroTicker(def.ticker) && (
                     <div
                       className={`sector-building-badge ${b.locked ? "locked" : ""}`}
-                      title={`${def.name} (${def.ticker})${b.locked ? " · Locked unpaid" : ""}`}
-                      aria-label={`${def.name} (${def.ticker})${b.locked ? ", locked unpaid" : ""}`}
+                      title={`${def.name} (${def.ticker})${b.locked ? " · Wallet holding unavailable" : ""}`}
+                      aria-label={`${def.name} (${def.ticker})${b.locked ? ", wallet holding unavailable" : ""}`}
                     >
                       <StockLogo
                         ticker={def.ticker}
@@ -664,8 +668,8 @@ export default function CityMap(props: Props) {
                   {b.locked && def.ticker && (
                     <span
                       className="no-road"
-                      title="Locked — pay in City Hall to unlock"
-                      aria-label="Locked, unpaid building"
+                      title="Wallet holding unavailable. Refresh holdings in City Hall."
+                      aria-label="Wallet holding unavailable. Refresh holdings in City Hall."
                       style={{ background: "#f0b90b", color: "#1a1a1a" }}
                     >
                       🔒

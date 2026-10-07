@@ -15,11 +15,15 @@ export type Quote = {
   ticker: string;
   price: number;
   change: number;
-  source: string;
-  status: "live" | "fallback" | "stale";
+  changeAvailable?: boolean;
+  source: string | null;
+  status: "live" | "unavailable" | "stale" | "fallback";
   fetchedAt: string | null;
   pair?: string;
   tokenName?: string;
+  contract?: string;
+  chainId?: 56;
+  platform?: string;
   /** Binance RWA Data on-chain vs reference spread (when the key is set). */
   rwa?: RwaQuoteDelta;
 };
@@ -30,7 +34,15 @@ export type MarketFeed = {
   marketSession?: RwaSession;
   error?: string;
 };
-export type PricePoint = { time: number; token?: number; benchmark?: number };
+export type PricePoint = {
+  time: number;
+  token?: number;
+  benchmark?: number;
+  open?: number;
+  high?: number;
+  low?: number;
+  volume?: number;
+};
 export type HistoryFeed = {
   points: PricePoint[];
   benchmarkPrice?: number;
@@ -39,9 +51,12 @@ export type HistoryFeed = {
   tokenSource: string;
   benchmarkSource: string;
   simulated: boolean;
+  contract?: string;
+  chainId?: 56;
+  error?: string;
   exchange?: string;
 };
-export function fallbackFeed(): MarketFeed {
+export function unavailableFeed(): MarketFeed {
   return {
     fetchedAt: new Date().toISOString(),
     quotes: Object.fromEntries(
@@ -49,38 +64,28 @@ export function fallbackFeed(): MarketFeed {
         a.ticker,
         {
           ticker: a.ticker,
-          price: a.price,
-          change: a.change,
-          source: "Illustrative fallback",
-          status: "fallback",
+          price: 0,
+          change: 0,
+          source: null,
+          status: "unavailable",
           fetchedAt: null,
         },
       ]),
     ),
   };
 }
-// Stable illustrative series; never represented as observed trading history.
-export function sampleHistory(price: number): PricePoint[] {
-  const now = Date.now();
-  return Array.from({ length: 168 }, (_, i) => {
-    const time = now - (168 - i) * 3600000;
-    const wave = Math.sin(i * 0.12) * 0.012 + Math.cos(i * 0.06) * 0.008;
-    const trend = ((i - 84) / 168) * 0.025;
-    const p = price * (1 + trend + wave);
-    const spread = Math.sin(i * 0.4) * 0.0018;
-    return {
-      time,
-      token: Number((p * (1 + spread)).toFixed(2)),
-      benchmark: Number(p.toFixed(2)),
-    };
-  });
-}
+/** Compatibility for the retired city renderer; never provides assumed prices. */
+export const fallbackFeed = unavailableFeed;
 export type Passport = {
   fetchedAt: string;
   name?: string;
   symbol?: string;
   logo?: string;
   isin?: string;
+  platform?: string;
+  chainId?: 56;
+  contract?: string;
+  attestations?: { label: string; url: string }[];
   exchange?: string;
   period?: string;
   nextChangeAt?: string;

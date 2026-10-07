@@ -1,11 +1,12 @@
 "use client";
-import { useState, useId } from "react";
+import { useState } from "react";
 import styles from "./stock-logo.module.css";
 import {
   stockLogoUrl,
   rwaLogoUrl,
   stockLogoApiUrl,
   rwaLogoApiUrl,
+  assets,
 } from "../lib/city";
 
 export type StockLogoProps = {
@@ -30,6 +31,9 @@ export default function StockLogo({
   badge,
 }: StockLogoProps) {
   const [attempt, setAttempt] = useState(0);
+  const knownLocal = assets.some(
+    (asset) => asset.ticker.toLowerCase() === ticker.toLowerCase(),
+  );
 
   // Generate sequence of fallback sources
   const sources =
@@ -39,12 +43,10 @@ export default function StockLogo({
           rwaLogoApiUrl(ticker),
           stockLogoUrl(ticker),
           stockLogoApiUrl(ticker),
-          `/api/stock-logo?ticker=${encodeURIComponent(ticker)}&type=rwa`,
         ]
       : [
-          stockLogoUrl(ticker),
+          ...(knownLocal ? [stockLogoUrl(ticker)] : []),
           stockLogoApiUrl(ticker),
-          `/api/stock-logo?ticker=${encodeURIComponent(ticker)}&type=stock`,
         ];
 
   const hasImage = attempt < sources.length;

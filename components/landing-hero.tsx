@@ -97,8 +97,8 @@ export default function LandingHero({ appId }: { appId: string }) {
 
       <aside className={styles.bottomLeft} aria-label="About Stockva">
         <p className={styles.description}>
-          Turn real-world equities into a living, breathing metropolis. Lay
-          roads, place company headquarters, and watch your island thrive.
+          Buy and sell tokenized stocks on BNB Smart Chain. Turn the tokens in
+          your wallet into a city, with live prices and confirmed trades.
         </p>
       </aside>
     </main>

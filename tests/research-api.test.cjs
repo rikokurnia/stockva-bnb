@@ -13,78 +13,9 @@ require.extensions[".ts"] = (mod, filename) =>
     }).outputText,
     filename,
   );
-const { GET: history } = require("../app/api/history/route.ts");
 const { GET: research } = require("../app/api/research/route.ts");
 const { NextRequest } = require("next/server");
 const request = (path) => new NextRequest(`http://local/api/${path}`);
-test("history API keeps underlying-only observations separate from token OHLC", async () => {
-  const original = global.fetch;
-  global.fetch = async (url) =>
-    new Response(
-      JSON.stringify(
-        url.includes("kraken")
-          ? {
-              error: [],
-              result: {
-                AAPLXUSD: [
-                  [1000, 0, 0, 0, "110"],
-                  [2000, 0, 0, 0, "112"],
-                ],
-                last: 2000,
-              },
-            }
-          : {
-              chart: {
-                result: [
-                  {
-                    meta: {
-                      regularMarketPrice: 111,
-                      regularMarketTime: 3000,
-                      exchangeName: "NMS",
-                    },
-                    timestamp: [2000, 3000],
-                    indicators: { quote: [{ close: [111, 113] }] },
-                  },
-                ],
-              },
-            },
-      ),
-    );
-  try {
-    const result = await (
-      await history(request("history?ticker=AAPL&pair=AAPLXUSD"))
-    ).json();
-    assert.deepEqual(result.points, [
-      { time: 1000000, token: 110 },
-      { time: 2000000, token: 112, benchmark: 111 },
-      { time: 3000000, benchmark: 113 },
-    ]);
-    assert.equal(result.simulated, false);
-  } finally {
-    global.fetch = original;
-  }
-});
-test("history outage returns an empty observed dataset, never a generated fallback", async () => {
-  const original = global.fetch;
-  global.fetch = async () => {
-    throw Error("offline");
-  };
-  try {
-    const result = await (await history(request("history?ticker=AAPL"))).json();
-    assert.deepEqual(result.points, []);
-    assert.equal(result.simulated, false);
-    assert.equal(
-      (await history(request("history?ticker=UNKNOWN"))).status,
-      400,
-    );
-    assert.equal(
-      (await history(request("history?ticker=AAPL&pair=http://bad"))).status,
-      400,
-    );
-  } finally {
-    global.fetch = original;
-  }
-});
 test("research API returns observed market statistics and SEC reporting periods", async () => {
   const original = global.fetch;
   global.fetch = async (url) =>
