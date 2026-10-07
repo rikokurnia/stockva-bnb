@@ -23,6 +23,8 @@ import {
   type TierThresholds,
 } from "../lib/city";
 import { companyProfiles, type CompanyNews } from "../lib/company-intel";
+import type { MainnetAsset } from "../lib/mainnet";
+import { bscAddressLink } from "../lib/mainnet";
 import type { Quote } from "../lib/market";
 import { portfolioPercent, portfolioStatus } from "../lib/portfolio-view";
 import StockLogo from "./stock-logo";
@@ -42,6 +44,8 @@ type Props = {
   onTrade: () => void;
   onPassport: () => void;
   onMove: () => void;
+  onRemove?: () => void;
+  mainnetAsset?: MainnetAsset;
 };
 export default function CompanyIntel(p: Props) {
   const def = defFor(p.building.kind),
@@ -155,7 +159,12 @@ export default function CompanyIntel(p: Props) {
                 <StockLogo ticker={asset.ticker} name={asset.name} size={42} />
                 <span>
                   {asset.ticker}
-                  <small>{asset.sector} · U.S. equity</small>
+                  <small>
+                    {asset.sector} ·{" "}
+                    {p.mainnetAsset
+                      ? `${p.mainnetAsset.symbol} · ${p.mainnetAsset.platform} · BSC 56`
+                      : "U.S. equity"}
+                  </small>
                 </span>
               </div>
               <h2 id={id}>{asset.name}</h2>
@@ -217,6 +226,22 @@ export default function CompanyIntel(p: Props) {
             </div>
           </div>
 
+          {p.mainnetAsset && (
+            <p className={styles.description} style={{ marginTop: 12 }}>
+              <a
+                href={bscAddressLink(p.mainnetAsset.address)}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Verify issuer token <ExternalLink size={11} />
+              </a>
+              {" · "}
+              {p.mainnetAsset.priceUpdatedAt
+                ? `Observed ${new Date(p.mainnetAsset.priceUpdatedAt).toLocaleString()}`
+                : "Price timestamp unavailable"}
+              {" · "}Token quantities come from your BSC wallet.
+            </p>
+          )}
           {profile && (
             <div className={styles.brief}>
               <div>
@@ -326,6 +351,11 @@ export default function CompanyIntel(p: Props) {
             <ShieldCheck size={14} />
             RWA passport
           </button>
+          {p.onRemove && (
+            <button className={styles.paperButton} onClick={p.onRemove}>
+              Remove visual building
+            </button>
+          )}
           <button
             className={styles.tradeButton}
             disabled={!p.hasExchange}

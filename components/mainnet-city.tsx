@@ -2,31 +2,32 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePrivy, useWallets } from "@privy-io/react-auth";
 import {
-  Building2,
-  ExternalLink,
-  Landmark,
+  ChevronDown,
+  ChevronRight,
+  ChevronUp,
+  GripVertical,
+  HelpCircle,
+  Maximize2,
   Minus,
-  MousePointer2,
   Plus,
   RefreshCw,
   Route,
-  Search,
   Trash2,
-  Wallet,
   X,
 } from "lucide-react";
 import CityMap from "./city-map";
 import OnchainWallet from "./onchain-wallet";
-import CivicCityHall from "./civic-city-hall";
+import CivicPanel from "./civic-panel";
+import { MainnetCatalogue } from "./mainnet-catalogue";
+import CityAdvisor from "./city-advisor";
+import MainnetAgentHall from "./mainnet-agent-hall";
+import CompanyIntel from "./company-intel";
+import portfolioStyles from "./portfolio-view.module.css";
 import MainnetFundingModal from "./mainnet-funding-modal";
 import MainnetDialog from "./mainnet-dialog";
 import MainnetTrade from "./mainnet-trade";
-import TradingChart from "./trading-chart";
-import StockLogo from "./stock-logo";
+
 import {
-  BSC_CHAIN_ID,
-  bscAddressLink,
-  bscTxLink,
   type EvmAddress,
   type MainnetAsset,
   type MainnetReceipt,
@@ -56,19 +57,23 @@ import {
   defFor,
   DEFAULT_THRESHOLDS,
   money,
+  buildingImage,
+  hasRoad,
+  sprite,
+  type Building,
+  type Category,
   placementError,
-  roadLine,
   validCell,
   type BuildingKind,
   type Cell,
   type PriceMap,
   type Tool,
 } from "../lib/city";
-import type { HistoryFeed } from "../lib/market";
+import type { Quote } from "../lib/market";
 import styles from "./mainnet-city.module.css";
 
 type Panel =
-  "market" | "hall" | "services" | "research" | "advisor" | "help" | null;
+  "market" | "hall" | "research" | "advisor" | "settings" | "help" | null;
 export default function MainnetCity() {
   const { wallets } = useWallets();
   const { login } = usePrivy();
@@ -94,32 +99,45 @@ export default function MainnetCity() {
   const [now, setNow] = useState(Date.now());
   const [panel, setPanel] = useState<Panel>(null);
   const [funding, setFunding] = useState(false);
-  const [search, setSearch] = useState("");
-  const [visibleAssets, setVisibleAssets] = useState(24);
+  const [category, setCategory] = useState<Category | null>(null);
+  const [lastCategory, setLastCategory] = useState<Category>("companies");
+  const [portfolioView, setPortfolioView] = useState(false);
+  const [moving, setMoving] = useState<string | null>(null);
+  const [guideHidden, setGuideHidden] = useState(false);
+  const [booted, setBooted] = useState(false);
+  const [confirmReset, setConfirmReset] = useState(false);
+  const [scanMode, setScanMode] = useState(false);
+  const [scanTarget, setScanTarget] = useState<string | null>(null);
+  const [focusTarget, setFocusTarget] = useState<{
+    r: number;
+    c: number;
+    nonce: number;
+  } | null>(null);
+  const [intelId, setIntelId] = useState<string | null>(null);
+  const [inspectorStyle, setInspectorStyle] = useState<
+    React.CSSProperties | undefined
+  >();
+  const utilityPanel = useRef<HTMLElement>(null);
+  const inspectorDrag = useRef<{ dx: number; dy: number } | null>(null);
+  const history = useRef<MainnetLayout[]>([]);
+  const future = useRef<MainnetLayout[]>([]);
+  const layoutRef = useRef(layout);
+  layoutRef.current = layout;
   const [activeAsset, setActiveAsset] = useState<MainnetAsset | null>(null);
   const [trade, setTrade] = useState<{
     asset: MainnetAsset;
     side: "buy" | "sell";
+    amount?: string;
   } | null>(null);
+  const [noticeVisible, setNoticeVisible] = useState(false);
   const [notice, setNotice] = useState(
     "Your island, your wallet. Roads and city services are free.",
   );
-  const [chart, setChart] = useState<HistoryFeed | null>(null);
-  const [chartError, setChartError] = useState<string | null>(null);
-  const [advisorQuestion, setAdvisorQuestion] = useState("");
-  const [advisorReply, setAdvisorReply] = useState<string | null>(null);
-  const [advisorBusy, setAdvisorBusy] = useState(false);
-  const [advisorError, setAdvisorError] = useState<string | null>(null);
   const balance =
     walletBalance?.account.toLowerCase() === account?.toLowerCase()
       ? walletBalance
       : null;
   const activeKey = layoutKey(account);
-  const selectedLiveAsset = activeAsset
-    ? (assets.find(
-        (a) => a.address.toLowerCase() === activeAsset.address.toLowerCase(),
-      ) ?? null)
-    : null;
   const accountRef = useRef(account);
   accountRef.current = account;
   const balanceRef = useRef(balance);
@@ -128,12 +146,12 @@ export default function MainnetCity() {
   receiptsRef.current = receipts;
   const city = useMemo(
     () =>
+      // App receipts do not prove complete wallet history or a holding's cost basis.
       representedCity(
         loadedKey === activeKey ? layout : emptyLayout(),
         balance,
-        receipts,
       ),
-    [layout, balance, receipts, loadedKey, activeKey],
+    [layout, balance, loadedKey, activeKey],
   );
   const prices: PriceMap = useMemo(() => {
     const map = Object.fromEntries(
@@ -213,6 +231,16 @@ export default function MainnetCity() {
     setBalanceError(null);
     setSelected(null);
     setTrade(null);
+    setIntelId(null);
+    setMoving(null);
+    setScanMode(false);
+    setScanTarget(null);
+    setConfirmReset(false);
+    setPlaceAsset(null);
+    setPlaceKind(null);
+    setTool("inspect");
+    history.current = [];
+    future.current = [];
     let stored: unknown = null;
     try {
       stored = JSON.parse(localStorage.getItem(activeKey) ?? "null");
@@ -362,30 +390,11 @@ export default function MainnetCity() {
       clearInterval(t);
     };
   }, [account, receipts.length]);
-  useEffect(() => {
-    if (panel !== "research" || !activeAsset) return;
-    const controller = new AbortController();
-    setChart(null);
-    setChartError(null);
-    fetch(
-      `/api/history?ticker=${encodeURIComponent(activeAsset.ticker)}&contract=${encodeURIComponent(activeAsset.address)}`,
-      { signal: controller.signal },
-    )
-      .then(async (r) => {
-        const data = await r.json();
-        if (!r.ok) throw Error(data.error ?? "Price history unavailable.");
-        if (!controller.signal.aborted) setChart(data);
-      })
-      .catch((e) => {
-        if (!controller.signal.aborted)
-          setChartError(
-            e instanceof Error ? e.message : "Price history unavailable.",
-          );
-      });
-    return () => controller.abort();
-  }, [panel, activeAsset]);
   const connect = () => {
     setPanel(null);
+    setCategory(null);
+    setIntelId(null);
+    setFunding(false);
     login({ loginMethods: ["wallet"] });
   };
   const getProvider = async (): Promise<WalletProvider> => {
@@ -413,7 +422,13 @@ export default function MainnetCity() {
       );
     }
   }, []);
-  const openTrade = (asset: MainnetAsset, side: "buy" | "sell") => {
+  const openTrade = (
+    asset: MainnetAsset,
+    side: "buy" | "sell",
+    amount?: string,
+  ) => {
+    setCategory(null);
+    setIntelId(null);
     if (!account) {
       setPanel(null);
       setFunding(true);
@@ -427,7 +442,7 @@ export default function MainnetCity() {
       return;
     }
     setPanel(null);
-    setTrade({ asset, side });
+    setTrade({ asset, side, amount });
   };
   const startPlace = (asset: MainnetAsset) => {
     const holding = holdingFor(asset);
@@ -456,6 +471,8 @@ export default function MainnetCity() {
       );
       return;
     }
+    setCategory(null);
+    setIntelId(null);
     setPlaceKind(def.kind);
     setPlaceAsset(asset);
     setTool("build");
@@ -468,9 +485,31 @@ export default function MainnetCity() {
     setTool("inspect");
     setPlaceKind(null);
     setPlaceAsset(null);
+    setMoving(null);
   };
   const place = (cell: Cell) => {
     if (!placeKind) return;
+    if (moving) {
+      const building = layout.buildings.find((b) => b.id === moving);
+      if (!building) return;
+      const error = placementError(cell, {
+        ...city,
+        buildings: city.buildings.filter((b) => b.id !== moving),
+      });
+      if (error) {
+        setNotice(error);
+        return;
+      }
+      commitLayout({
+        ...layout,
+        buildings: layout.buildings.map((b) =>
+          b.id === moving ? { ...b, ...cell } : b,
+        ),
+      });
+      cancelPlacement();
+      setNotice("Building moved. Your wallet balance is unchanged.");
+      return;
+    }
     const error = placementError(cell, city);
     if (error) {
       setNotice(error);
@@ -478,12 +517,15 @@ export default function MainnetCity() {
     }
     if (
       placeAsset &&
-      (!account || !holdingFor(placeAsset) || !balanceRef.current)
+      (!account ||
+        !holdingFor(placeAsset) ||
+        BigInt(holdingFor(placeAsset)?.raw ?? "0") <= 0n ||
+        !balanceRef.current)
     ) {
       setNotice("Refresh your wallet holding before placing this company.");
       return;
     }
-    setLayout((prev) =>
+    commitLayout((prev) =>
       prev.buildings.some(
         (b) =>
           b.kind === placeKind ||
@@ -522,7 +564,7 @@ export default function MainnetCity() {
       setNotice("Keep roads on the island and clear of buildings.");
       return;
     }
-    setLayout((prev) => ({
+    commitLayout((prev) => ({
       ...prev,
       roads: [
         ...prev.roads,
@@ -534,7 +576,7 @@ export default function MainnetCity() {
   };
   const remove = (cell: Cell) => {
     const b = buildingAt(cell, city);
-    setLayout((prev) => ({
+    commitLayout((prev) => ({
       ...prev,
       buildings: b
         ? prev.buildings.filter((row) => row.id !== b.id)
@@ -558,62 +600,216 @@ export default function MainnetCity() {
       exchange: "market",
       hall: "hall",
       agent_hall: "advisor",
-      oracle: "market",
+      oracle: "research",
     };
-    if (actions[b.kind]) setPanel(actions[b.kind]!);
-  };
-  const askAdvisor = async () => {
-    if (!advisorQuestion.trim() || advisorBusy) return;
-    setAdvisorBusy(true);
-    setAdvisorError(null);
-    setAdvisorReply(null);
-    const owner = account;
-    try {
-      const response = await fetch("/api/advisor", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          message: advisorQuestion,
-          snapshot: {
-            cash: balance ? Number(balance.usdt.formatted) : undefined,
-            totalValue: totalStockValue ?? undefined,
-            walletConnected: !!balance,
-            onchainCount: balance?.holdings.length ?? 0,
-            marketNote:
-              "BSC mainnet direct-wallet holdings. Prices may be unavailable. This advisor cannot trade or schedule orders.",
-            holdings:
-              balance?.holdings.map((h) => ({
-                ticker: h.asset.ticker,
-                name: h.asset.name,
-                units: Number(h.formatted),
-                price: h.asset.priceUsd ? Number(h.asset.priceUsd) : undefined,
-                value: h.asset.priceUsd
-                  ? Number(h.formatted) * Number(h.asset.priceUsd)
-                  : undefined,
-                onchain: true,
-                active: true,
-              })) ?? [],
-          },
-        }),
-        signal: AbortSignal.timeout(60000),
-      });
-      const data = await response.json();
-      if (!response.ok) throw Error(data.error ?? "Advisor unavailable.");
-      if (accountRef.current === owner)
-        setAdvisorReply(data.reply ?? data.message ?? "No response returned.");
-    } catch (e) {
-      setAdvisorError(e instanceof Error ? e.message : "Advisor unavailable.");
-    } finally {
-      setAdvisorBusy(false);
+    if (scanMode && defFor(b.kind).ticker) {
+      setScanTarget(id);
+      return;
     }
+    if (actions[b.kind]) {
+      setCategory(null);
+      setIntelId(null);
+      setPanel(actions[b.kind]!);
+    } else if (defFor(b.kind).ticker) {
+      setPanel(null);
+      setIntelId(b.id);
+    } else setPanel(null);
   };
-  const filteredAssets = assets.filter((a) =>
-    `${a.ticker} ${a.symbol} ${a.name} ${a.platform}`
-      .toLowerCase()
-      .includes(search.toLowerCase()),
+  const commitLayout = (
+    next: MainnetLayout | ((previous: MainnetLayout) => MainnetLayout),
+  ) => {
+    if (loadedKey !== activeKey) return;
+    const previous = layoutRef.current;
+    const value = typeof next === "function" ? next(previous) : next;
+    if (value === previous) return;
+    history.current = [...history.current.slice(-29), previous];
+    future.current = [];
+    layoutRef.current = value;
+    setLayout(value);
+  };
+  const undo = () => {
+    const previous = history.current.pop();
+    if (!previous) return;
+    future.current.push(layoutRef.current);
+    layoutRef.current = previous;
+    setLayout(previous);
+    setNotice("Layout change undone. Wallet holdings are unchanged.");
+  };
+  const redo = () => {
+    const next = future.current.pop();
+    if (!next) return;
+    history.current.push(layoutRef.current);
+    layoutRef.current = next;
+    setLayout(next);
+  };
+  const chooseCategory = (next: Category) => {
+    cancelPlacement();
+    setLastCategory(next);
+    setCategory(next);
+    setPanel(null);
+    setIntelId(null);
+    setSelected(null);
+    setPortfolioView(false);
+  };
+  const chooseRoad = () => {
+    cancelPlacement();
+    setTool("road");
+    setCategory(null);
+    setPanel(null);
+    setNotice(
+      "Drawing free roads. Drag a route on the island; Escape finishes.",
+    );
+  };
+  const placeService = (kind: BuildingKind) => {
+    if (layout.buildings.some((b) => b.kind === kind)) return;
+    cancelPlacement();
+    setCategory(null);
+    setPanel(null);
+    setPlaceKind(kind);
+    setTool("build");
+    setNotice(`Place ${defFor(kind).name} on your island. Free.`);
+  };
+  const openPanel = (next: Panel) => {
+    setCategory(null);
+    setIntelId(null);
+    cancelPlacement();
+    setPanel(next);
+  };
+  const toggleSelectPortfolio = () => {
+    cancelPlacement();
+    setCategory(null);
+    setSelected(null);
+    setIntelId(null);
+    setPanel(null);
+    setPortfolioView((value) => !value);
+  };
+  const focusBuilding = (building: Building) => {
+    openPanel(null);
+    setSelected(building.id);
+    setZoom(1.7);
+    setFocusTarget({ r: building.r, c: building.c, nonce: Date.now() });
+  };
+  const intelBuilding = city.buildings.find(
+    (b) => b.id === intelId && defFor(b.kind).ticker,
   );
+  const intelAsset = assets.find(
+    (a) =>
+      a.address.toLowerCase() === intelBuilding?.tokenAddress?.toLowerCase(),
+  );
+  const observation = (asset: MainnetAsset | undefined): Quote | undefined =>
+    asset
+      ? {
+          ticker: asset.ticker,
+          price: Number(asset.priceUsd ?? 0),
+          change: 0,
+          changeAvailable: false,
+          source: "Binance Web3 · BSC token observation",
+          status:
+            asset.priceUsd === null
+              ? "unavailable"
+              : asset.priceUpdatedAt &&
+                  Date.now() - Date.parse(asset.priceUpdatedAt) > 120000
+                ? "stale"
+                : "live",
+          fetchedAt: asset.priceUpdatedAt,
+          contract: asset.address,
+          tokenName: asset.symbol,
+          platform: asset.platform,
+          chainId: 56,
+        }
+      : undefined;
+  const scanBuilding = city.buildings.find((b) => b.id === scanTarget);
+  const scanAsset = assets.find(
+    (a) =>
+      a.address.toLowerCase() === scanBuilding?.tokenAddress?.toLowerCase(),
+  );
+  const builtKinds = new Set(layout.buildings.map((b) => b.kind));
+  const hasHall = layout.buildings.some((b) => b.kind === "hall");
+  const steps = [
+    city.roads.length > 0,
+    city.buildings.some((b) => b.kind === "exchange"),
+    city.buildings.some((b) => defFor(b.kind).ticker && !b.locked),
+  ];
+  useEffect(() => {
+    if (
+      notice === "Your island, your wallet. Roads and city services are free."
+    )
+      return;
+    setNoticeVisible(true);
+    const timer = setTimeout(() => setNoticeVisible(false), 6000);
+    return () => clearTimeout(timer);
+  }, [notice]);
+  useEffect(() => {
+    if (panel !== "settings" && panel !== "help") return;
+    const previous = document.activeElement as HTMLElement | null;
+    utilityPanel.current?.focus();
+    return () => {
+      if (previous?.isConnected) previous.focus();
+    };
+  }, [panel]);
+  useEffect(() => {
+    const timer = setTimeout(() => setBooted(true), 650);
+    return () => clearTimeout(timer);
+  }, []);
+  useEffect(() => {
+    const key = (event: KeyboardEvent) => {
+      if (
+        (event.target as HTMLElement)?.closest(
+          "input, textarea, select, [contenteditable=true], [role=dialog]",
+        )
+      )
+        return;
+      if (trade || funding || category || intelId || panel || confirmReset)
+        return;
+      const k = event.key.toLowerCase();
+      if ((event.ctrlKey || event.metaKey) && k === "z") {
+        event.preventDefault();
+        event.shiftKey ? redo() : undo();
+        return;
+      }
+      if (k === "escape") {
+        cancelPlacement();
+        setSelected(null);
+        setScanMode(false);
+      } else if (k === "b") chooseCategory(lastCategory);
+      else if (k === "s") chooseCategory("services");
+      else if (k === "r") chooseRoad();
+      else if (k === "v") toggleSelectPortfolio();
+      else if (k === "x") {
+        cancelPlacement();
+        setTool("bulldoze");
+        setNotice(
+          "Remove visual buildings and roads. Tokens stay in your wallet.",
+        );
+      } else if (k === "g") setGrid((value) => !value);
+      else if (k === "+" || k === "=") setZoom((z) => Math.min(2, z + 0.1));
+      else if (k === "-") setZoom((z) => Math.max(0.5, z - 0.1));
+    };
+    window.addEventListener("keydown", key);
+    return () => window.removeEventListener("keydown", key);
+  });
   return (
-    <main className={`simcity ${styles.shell}`}>
+    <main className={`simcity ${category ? "tray-open" : ""}`}>
+      {!booted && (
+        <div className="boot-overlay" aria-label="Loading Stockva">
+          <video
+            className="boot-video"
+            src="/assets/background-main.mp4"
+            poster="/assets/background.png"
+            muted
+            autoPlay
+            loop
+            playsInline
+          />
+          <div className="boot-card">
+            <span className="boot-kicker">STOCKVA · BNB SMART CHAIN</span>
+            <strong>Opening your island…</strong>
+            <small>
+              Your city layout saves here. Holdings come from your wallet.
+            </small>
+          </div>
+        </div>
+      )}
       <CityMap
         freePlacement
         city={city}
@@ -621,11 +817,15 @@ export default function MainnetCity() {
         kind={placeKind}
         amount={0}
         selected={selected}
-        moving={null}
+        moving={moving}
         zoom={zoom}
         cameraReset={cameraReset}
-        grid={grid}
-        portfolioView={false}
+        focusTarget={focusTarget}
+        scanMode={scanMode}
+        scanTarget={scanTarget}
+        onScanTarget={setScanTarget}
+        grid={grid || portfolioView}
+        portfolioView={portfolioView}
         motion={motion}
         paused={false}
         speed={1}
@@ -642,538 +842,722 @@ export default function MainnetCity() {
         onCancel={cancelPlacement}
         onHover={() => {}}
       />
-      <header className={styles.topbar}>
-        <a className={styles.brand} href="/">
-          <img src="/assets/ai_logo.png" alt="Stockva" />
-          STOCKVA
-        </a>
-        <span
-          className={styles.network}
-          title="BNB Smart Chain mainnet · chain 56"
+      {intelBuilding && !panel && !trade && (
+        <CompanyIntel
+          building={intelBuilding}
+          prices={prices}
+          quote={observation(intelAsset)}
+          mainnetAsset={intelAsset}
+          onRemove={() => {
+            remove(intelBuilding);
+            setIntelId(null);
+          }}
+          thresholds={DEFAULT_THRESHOLDS}
+          running={false}
+          hasExchange={true}
+          hasData={true}
+          onClose={() => {
+            setIntelId(null);
+            setSelected(null);
+          }}
+          onTrade={() => {
+            setActiveAsset(intelAsset ?? null);
+            openPanel("market");
+          }}
+          onPassport={() => {
+            setActiveAsset(intelAsset ?? null);
+            openPanel("research");
+          }}
+          onMove={() => {
+            setIntelId(null);
+            setMoving(intelBuilding.id);
+            setPlaceKind(intelBuilding.kind);
+            setTool("move");
+            setCategory(null);
+            setNotice("Choose an empty plot. Escape cancels.");
+          }}
+        />
+      )}
+      {portfolioView && (
+        <div className={portfolioStyles.heading} role="status">
+          <h2>Portfolio view</h2>
+          <p>
+            {balance
+              ? "BSC wallet holdings · issuer-token observations"
+              : "Connect a wallet to view your holdings"}
+          </p>
+          <p>Select returns to your city</p>
+        </div>
+      )}
+      <header className="game-header">
+        <button
+          className={`menu-button ${panel === "settings" ? "active" : ""}`}
+          onClick={() => openPanel("settings")}
+          aria-label="Game menu"
+          title="Game settings"
         >
-          <i /> <span className={styles.networkFull}>BNB SMART CHAIN · 56</span>
-          <span className={styles.networkShort}>BSC · 56</span>
-        </span>
-        <div className={styles.topActions}>
-          <button onClick={() => setFunding(true)} aria-label="Fund wallet">
-            <Wallet size={15} />
-            <span>Fund wallet</span>
+          <img src={sprite("buttons/settings")} alt="" />
+        </button>
+        <div className="header-resources">
+          <div
+            className={`cash-resource-container ${balance && Number(balance.usdt.formatted) === 0 ? "needs-funds" : ""}`}
+          >
+            <button
+              className="cash-resource"
+              onClick={() => (account ? openPanel("hall") : setFunding(true))}
+              title={
+                balanceError ??
+                (balance
+                  ? `${balance.usdt.formatted} USDT · ${balance.bnb.formatted} BNB for gas`
+                  : "Connect wallet · BNB Smart Chain mainnet")
+              }
+            >
+              <img
+                src={sprite("buttons/portfolio")}
+                alt=""
+                aria-hidden="true"
+              />
+              <b>
+                {account
+                  ? balanceError
+                    ? "Unavailable"
+                    : balance
+                      ? `${Number(balance.usdt.formatted).toLocaleString(undefined, { maximumFractionDigits: 6 })} USDT`
+                      : "Reading…"
+                  : "Wallet"}
+              </b>
+            </button>
+            <button
+              type="button"
+              className="add-funds-btn"
+              onClick={() => setFunding(true)}
+              title="Fund your BSC wallet with USDT and BNB"
+              aria-label="Fund wallet"
+            >
+              <Plus size={14} />
+            </button>
+          </div>
+          <button
+            className="portfolio-resource"
+            onClick={() => openPanel("hall")}
+            title="City Hall · actual wallet holdings"
+          >
+            <img src={sprite("buttons/buy")} alt="" aria-hidden="true" />
+            <span>
+              <small>STOCK VALUE</small>
+              <b>
+                {!balance || totalStockValue === null
+                  ? "—"
+                  : money(totalStockValue)}
+              </b>
+            </span>
+          </button>
+          <button
+            className="market-button"
+            onClick={() => openPanel("market")}
+            title="Stock market"
+          >
+            <GameArt index={5} />
+            <span>Market</span>
           </button>
           <OnchainWallet address={account} onChange={setAccount} />
         </div>
       </header>
-      <section className={styles.walletSummary} aria-label="Wallet overview">
-        <small>YOUR WALLET</small>
-        <strong>
-          {account
-            ? balanceError
-              ? "Unavailable"
-              : balance
-                ? `${Number(balance.usdt.formatted).toLocaleString(undefined, { maximumFractionDigits: 6 })} USDT`
-                : "Reading balances…"
-            : "Connect to begin"}
-        </strong>
-        <p>
-          {balance && !balanceError
-            ? `${Number(balance.bnb.formatted).toLocaleString(undefined, { maximumFractionDigits: 8 })} BNB for gas`
-            : "BSC mainnet · assets stay in your wallet"}
-        </p>
-        <div>
-          <span>Stock value</span>
-          <b>
-            {!balance || totalStockValue === null
-              ? "—"
-              : money(totalStockValue)}
-          </b>
-          <button
-            onClick={() => setRefresh((n) => n + 1)}
-            disabled={balanceLoading}
-            aria-label="Refresh mainnet balances"
-          >
-            <RefreshCw size={13} />
+      {tool !== "inspect" && !category && (
+        <div className="active-tool-chip" role="status">
+          <GameArt
+            index={
+              tool === "road"
+                ? 1
+                : tool === "bulldoze"
+                  ? 4
+                  : placeKind && defFor(placeKind).category === "services"
+                    ? 3
+                    : 2
+            }
+          />
+          <span>
+            <strong>
+              {tool === "road"
+                ? "Drawing roads"
+                : tool === "bulldoze"
+                  ? "Bulldoze mode"
+                  : `${tool === "move" ? "Move" : "Place"} ${placeKind ? defFor(placeKind).name : "building"}`}
+            </strong>
+            <small>
+              {tool === "road"
+                ? "Free · drag a route"
+                : tool === "bulldoze"
+                  ? "Remove a visual object · wallet tokens stay held"
+                  : "Free placement · click an island plot"}
+            </small>
+          </span>
+          <button onClick={cancelPlacement} aria-label="Finish building">
+            Done <kbd>Esc</kbd>
           </button>
         </div>
-        {balanceError && (
-          <p className={styles.error} role="alert">
-            {balanceError}
-          </p>
+      )}
+      {(!city.buildings.length || !city.roads.length) &&
+        !panel &&
+        !selected &&
+        booted &&
+        !category &&
+        !trade && (
+          <div
+            className={`start-note ${guideHidden ? "minimized" : ""}`}
+            role="status"
+          >
+            <span className="step-number">
+              {steps.filter(Boolean).length}/3
+            </span>
+            {!guideHidden && (
+              <span>
+                <b>Empty island — build it yourself</b>
+                <small>
+                  {steps[0] ? "✓" : "1."} Draw roads (R) ·{" "}
+                  {steps[1] ? "✓" : "2."} Build Exchange (S) ·{" "}
+                  {steps[2] ? "✓" : "3."} Buy a company
+                </small>
+              </span>
+            )}
+            <button
+              className="start-note-toggle"
+              onClick={() => setGuideHidden((v) => !v)}
+              aria-label={guideHidden ? "Expand guideline" : "Hide guideline"}
+            >
+              {guideHidden ? (
+                <ChevronUp size={14} />
+              ) : (
+                <ChevronDown size={14} />
+              )}
+            </button>
+          </div>
         )}
-        {pending && (
-          <button className={styles.warning} onClick={() => setPanel("hall")}>
-            An order needs confirmation →
-          </button>
-        )}
-      </section>
-      <nav className={styles.toolbar} aria-label="City tools">
-        <button
-          aria-label="Inspect"
-          className={tool === "inspect" ? styles.active : ""}
-          onClick={cancelPlacement}
-        >
-          <MousePointer2 size={19} />
-          <span>Inspect</span>
-        </button>
-        <button
-          aria-label="Stocks"
-          onClick={() => {
-            cancelPlacement();
-            setPanel("market");
-          }}
-        >
-          <Building2 size={19} />
-          <span>Stocks</span>
-        </button>
-        <button
-          aria-label="Roads"
-          className={tool === "road" ? styles.active : ""}
-          onClick={() => {
-            setTool("road");
-            setPlaceKind(null);
-            setNotice("Drag on the island to draw free roads.");
-          }}
-        >
-          <Route size={19} />
-          <span>Roads</span>
-        </button>
-        <button onClick={() => setPanel("services")} aria-label="Services">
-          <Landmark size={19} />
-          <span>Services</span>
-        </button>
-        <button
-          aria-label="Remove"
-          className={tool === "bulldoze" ? styles.active : ""}
-          onClick={() => {
-            setTool("bulldoze");
-            setNotice(
-              "Remove roads and visual buildings. This does not sell tokens.",
-            );
-          }}
-        >
-          <Trash2 size={19} />
-          <span>Remove</span>
-        </button>
-      </nav>
-      <div className={styles.bottomBar}>
-        <p role="status">{notice}</p>
-        <div>
-          <button onClick={() => setPanel("hall")}>City Hall</button>
-          <button onClick={() => setPanel("advisor")}>Cokoo advisor</button>
-          <button onClick={() => setPanel("help")}>Help</button>
-          <button
-            onClick={() => setZoom((z) => Math.max(0.5, z - 0.1))}
-            aria-label="Zoom out"
+      <MainnetCatalogue
+        open={Boolean(category)}
+        category={category}
+        onSelectCategory={chooseCategory}
+        onClose={() => setCategory(null)}
+        assets={assets}
+        balance={balance}
+        loading={assetsLoading}
+        error={assetError}
+        builtKinds={builtKinds}
+        onTrade={openTrade}
+        onPlaceAsset={startPlace}
+        onPlaceService={placeService}
+        onStartDrawRoad={chooseRoad}
+      />
+      {selection &&
+        !panel &&
+        !trade &&
+        !intelBuilding &&
+        !category &&
+        !scanMode &&
+        tool === "inspect" && (
+          <aside
+            className="inspection-panel"
+            aria-label="Selected building"
+            style={inspectorStyle}
           >
-            <Minus size={15} />
-          </button>
-          <span>{Math.round(zoom * 100)}%</span>
-          <button
-            onClick={() => setZoom((z) => Math.min(2, z + 0.1))}
-            aria-label="Zoom in"
-          >
-            <Plus size={15} />
-          </button>
-        </div>
-      </div>
-      {selection && !panel && !trade && (
-        <aside className={styles.inspector}>
-          <button
-            className={styles.inspectorClose}
-            onClick={() => setSelected(null)}
-            aria-label="Close building inspector"
-          >
-            <X size={16} />
-          </button>
-          <small>
-            {selectedAsset
-              ? `${selectedAsset.platform} · ${selectedAsset.symbol}`
-              : "CITY SERVICE"}
-          </small>
-          <h3>{defFor(selection.kind).name}</h3>
-          {selectedAsset ? (
-            <>
-              <p>
-                {balance
-                  ? `${holdingFor(selectedAsset)?.formatted ?? "0"} ${selectedAsset.symbol}`
-                  : "Wallet balance unavailable"}
-              </p>
-              <strong>
-                {selectedAsset.priceUsd !== null && balance
-                  ? money(selection.quantity * Number(selectedAsset.priceUsd))
-                  : "Price unavailable"}
-              </strong>
-              <p className={styles.muted}>
-                {selection.entry
-                  ? `Entry ${money(selection.entry)} per token from confirmed purchases`
-                  : "Cost basis unavailable"}
-              </p>
-              <div className={styles.buttonRow}>
-                <button
-                  className={styles.primary}
-                  disabled={!balance || pending}
-                  onClick={() => openTrade(selectedAsset, "buy")}
-                >
-                  Buy more
-                </button>
-                <button
-                  className={styles.secondary}
-                  disabled={!balance || selection.quantity <= 0 || pending}
-                  onClick={() => openTrade(selectedAsset, "sell")}
-                >
-                  Sell
-                </button>
+            <header
+              title="Hold and drag to move this card"
+              onPointerDown={(event) => {
+                if ((event.target as HTMLElement).closest("button")) return;
+                const box =
+                  event.currentTarget.parentElement!.getBoundingClientRect();
+                inspectorDrag.current = {
+                  dx: event.clientX - box.left,
+                  dy: event.clientY - box.top,
+                };
+                event.currentTarget.setPointerCapture(event.pointerId);
+              }}
+              onPointerMove={(event) => {
+                if (!inspectorDrag.current) return;
+                setInspectorStyle({
+                  left: Math.max(
+                    8,
+                    Math.min(
+                      window.innerWidth - 310,
+                      event.clientX - inspectorDrag.current.dx,
+                    ),
+                  ),
+                  top: Math.max(
+                    8,
+                    Math.min(
+                      window.innerHeight - 150,
+                      event.clientY - inspectorDrag.current.dy,
+                    ),
+                  ),
+                  right: "auto",
+                  bottom: "auto",
+                });
+              }}
+              onPointerUp={() => {
+                inspectorDrag.current = null;
+              }}
+              onPointerCancel={() => {
+                inspectorDrag.current = null;
+              }}
+            >
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <GripVertical size={15} className="drag-handle" />
+                <div>
+                  <small>CITY SERVICE</small>
+                  <h2>{defFor(selection.kind).name}</h2>
+                </div>
               </div>
               <button
+                onClick={() => setSelected(null)}
+                aria-label="Close building inspector"
+              >
+                <X size={19} />
+              </button>
+            </header>
+            <div
+              className={`inspection-art ${defFor(selection.kind).category}`}
+            >
+              <img
+                src={sprite(
+                  buildingImage(selection, prices, DEFAULT_THRESHOLDS),
+                )}
+                alt={defFor(selection.kind).name}
+              />
+              <span>SERVICE</span>
+            </div>
+            <div
+              className={`road-connection ${hasRoad(selection, city.roads) ? "connected" : ""}`}
+            >
+              <Route size={13} />
+              {hasRoad(selection, city.roads)
+                ? "Road access connected"
+                : "No road access — connect a road"}
+            </div>
+            <p className="service-description">
+              {defFor(selection.kind).description}
+            </p>
+            {selection.kind !== "monument" && (
+              <button
+                className="panel-action"
+                onClick={() =>
+                  openPanel(
+                    selection.kind === "hall"
+                      ? "hall"
+                      : selection.kind === "exchange"
+                        ? "market"
+                        : selection.kind === "agent_hall"
+                          ? "advisor"
+                          : "research",
+                  )
+                }
+              >
+                Open{" "}
+                {selection.kind === "hall"
+                  ? "finances"
+                  : selection.kind === "exchange"
+                    ? "market"
+                    : selection.kind === "agent_hall"
+                      ? "Agent Hall"
+                      : "data status"}
+                <ChevronRight size={14} />
+              </button>
+            )}
+            <div className="inspection-actions">
+              <button
                 onClick={() => {
-                  setActiveAsset(selectedAsset);
-                  setPanel("research");
+                  setMoving(selection.id);
+                  setPlaceKind(selection.kind);
+                  setTool("move");
                 }}
               >
-                Token details & history
+                Move
               </button>
-            </>
-          ) : (
-            <p>{defFor(selection.kind).description}</p>
-          )}
-          <button onClick={() => remove(selection)}>
-            Remove visual building
+              <button className="danger" onClick={() => remove(selection)}>
+                <Trash2 size={14} />
+                Bulldoze
+              </button>
+            </div>
+            <div className="inspection-note">
+              Free visual service. Removing it does not spend or return wallet
+              funds.
+            </div>
+          </aside>
+        )}
+      {scanMode && (
+        <div className="scan-toolbar">
+          <span>SCAN MODE · Hover or tap a building</span>
+          <button
+            onClick={() => {
+              setScanMode(false);
+              setScanTarget(null);
+            }}
+          >
+            Exit scan <X size={14} />
+          </button>
+        </div>
+      )}
+      {scanMode && scanAsset && (
+        <aside className="scan-card">
+          <small>RWA SIGNAL</small>
+          <h3>{scanAsset.symbol}</h3>
+          <p>{scanAsset.platform}</p>
+          <dl>
+            <dt>Token price</dt>
+            <dd>
+              {scanAsset.priceUsd
+                ? money(Number(scanAsset.priceUsd))
+                : "Unavailable"}
+            </dd>
+            <dt>Observed</dt>
+            <dd>
+              {scanAsset.priceUpdatedAt
+                ? new Date(scanAsset.priceUpdatedAt).toLocaleString()
+                : "Timestamp unavailable"}
+            </dd>
+          </dl>
+          <button
+            onClick={() => {
+              setActiveAsset(scanAsset);
+              setScanMode(false);
+              openPanel("research");
+            }}
+          >
+            View Passport <ChevronRight size={14} />
           </button>
         </aside>
       )}
-      {panel && (
-        <MainnetDialog
-          title={
-            panel === "market"
-              ? "Stock Exchange"
-              : panel === "hall"
-                ? "City Hall"
-                : panel === "services"
-                  ? "City services"
-                  : panel === "research"
-                    ? `${activeAsset?.symbol ?? "Token"} details`
-                    : panel === "advisor"
-                      ? "Cokoo portfolio advisor"
-                      : "Your mainnet city"
+      {(panel === "hall" || panel === "market" || panel === "research") && (
+        <CivicPanel
+          mode={
+            panel === "hall"
+              ? "portfolio"
+              : panel === "research"
+                ? "data"
+                : "market"
           }
+          city={city}
+          assets={assets}
+          balance={balance}
+          walletAddress={account}
+          receipts={receipts}
+          loading={assetsLoading}
+          error={assetError}
+          balanceLoading={balanceLoading}
+          balanceError={balanceError}
+          initialAsset={activeAsset}
           onClose={() => setPanel(null)}
+          onRetry={() => setRefresh((n) => n + 1)}
+          onTrade={openTrade}
+          onPlaceAsset={startPlace}
+          onFocus={focusBuilding}
+          onScan={() => {
+            openPanel(null);
+            setScanMode(true);
+            setScanTarget(null);
+          }}
+          onConnectWallet={connect}
+          onFundWallet={() => {
+            setPanel(null);
+            setFunding(true);
+          }}
+        />
+      )}
+      {panel === "advisor" && (
+        <MainnetAgentHall
+          balance={balance}
+          account={account}
+          onClose={() => setPanel(null)}
+          onTrade={openTrade}
+          onConnectWallet={connect}
+        />
+      )}
+      {(panel === "settings" || panel === "help") && (
+        <aside
+          className="utility-panel"
+          ref={utilityPanel}
+          tabIndex={-1}
+          role="dialog"
+          aria-label={panel === "settings" ? "Game settings" : "Controls"}
+          onKeyDown={(event) => {
+            if (event.key === "Escape") {
+              event.stopPropagation();
+              setPanel(null);
+            }
+          }}
         >
-          {panel === "market" && (
-            <>
-              <p className={styles.muted}>
-                Choose an issuer token on BSC. Prices are market observations;
-                each trade gets a fresh executable quote.
-              </p>
-              <label className={styles.search}>
-                <Search size={16} />
-                <input
-                  value={search}
-                  onChange={(e) => {
-                    setSearch(e.target.value);
-                    setVisibleAssets(24);
-                  }}
-                  placeholder="Search company, ticker or issuer"
-                  aria-label="Search stock tokens"
-                />
-              </label>
-              {assetError && (
-                <p className={styles.error} role="alert">
-                  {assetError}
-                </p>
-              )}
-              {assetsLoading && <p>Loading mainnet issuer tokens…</p>}
-              <div className={styles.assets}>
-                {filteredAssets.slice(0, visibleAssets).map((asset) => {
-                  const holding = holdingFor(asset);
-                  const represented = layout.buildings.some(
-                    (b) =>
-                      b.tokenAddress?.toLowerCase() ===
-                      asset.address.toLowerCase(),
-                  );
-                  return (
-                    <article className={styles.assetCard} key={asset.address}>
-                      <div className={styles.assetTitle}>
-                        <StockLogo
-                          ticker={asset.ticker}
-                          name={asset.name}
-                          size={32}
-                        />
-                        <div>
-                          <h3>{asset.symbol}</h3>
-                          <small>
-                            {asset.name} · {asset.platform}
-                          </small>
-                        </div>
-                        <strong>
-                          {asset.priceUsd === null
-                            ? "—"
-                            : money(Number(asset.priceUsd))}
-                        </strong>
-                      </div>
-                      <p className={styles.muted}>
-                        {holding
-                          ? `Held: ${holding.formatted} ${asset.symbol}`
-                          : "No wallet holding detected"}
-                      </p>
-                      <small className={styles.muted}>
-                        {asset.priceUpdatedAt
-                          ? `Observed ${new Date(asset.priceUpdatedAt).toLocaleTimeString()}${Date.now() - Date.parse(asset.priceUpdatedAt) > 120000 ? " · stale" : ""}`
-                          : "Price timestamp unavailable"}
-                      </small>
-                      <div className={styles.buttonRow}>
-                        <button
-                          className={styles.primary}
-                          onClick={() => openTrade(asset, "buy")}
-                          disabled={pending}
-                        >
-                          Buy
-                        </button>
-                        <button
-                          className={styles.secondary}
-                          onClick={() => openTrade(asset, "sell")}
-                          disabled={
-                            !holding || BigInt(holding.raw) <= 0n || pending
-                          }
-                        >
-                          Sell
-                        </button>
-                        <button
-                          onClick={() => {
-                            setActiveAsset(asset);
-                            setPanel("research");
-                          }}
-                        >
-                          Details
-                        </button>
-                        {holding &&
-                          catalogue.some((d) => d.ticker === asset.ticker) && (
-                            <button
-                              onClick={() => startPlace(asset)}
-                              disabled={represented}
-                            >
-                              {represented ? "In city" : "Place building"}
-                            </button>
-                          )}
-                      </div>
-                    </article>
-                  );
-                })}
-              </div>
-              {filteredAssets.length > visibleAssets && (
+          <header>
+            <h2>{panel === "settings" ? "Game settings" : "Controls"}</h2>
+            <button onClick={() => setPanel(null)} aria-label="Close panel">
+              <X size={18} />
+            </button>
+          </header>
+          <div className="panel-body">
+            {panel === "settings" ? (
+              <>
+                <div className="settings-mode-container">
+                  <span className="settings-mode-label">
+                    Market Operating Mode
+                  </span>
+                  <div className="mode-toggle-group">
+                    <button
+                      className="mode-toggle-btn active-live"
+                      type="button"
+                    >
+                      <span className="live-pulse-dot" />
+                      <span>BNB Smart Chain · Live RWA</span>
+                    </button>
+                  </div>
+                  <small className="settings-mode-hint">
+                    Actual wallet balances and issuer-token observations. Trades
+                    require wallet approval.
+                  </small>
+                </div>
+                <label className="setting-toggle">
+                  <span>Island animation & traffic</span>
+                  <input
+                    type="checkbox"
+                    checked={motion}
+                    onChange={(e) => setMotion(e.target.checked)}
+                  />
+                </label>
+                <label className="setting-toggle">
+                  <span>Show construction grid</span>
+                  <input
+                    type="checkbox"
+                    checked={grid}
+                    onChange={(e) => setGrid(e.target.checked)}
+                  />
+                </label>
                 <button
-                  className={styles.secondary}
-                  onClick={() => setVisibleAssets((n) => n + 24)}
-                >
-                  Show more tokens (
-                  {Math.min(visibleAssets, filteredAssets.length)} of{" "}
-                  {filteredAssets.length})
-                </button>
-              )}
-              {!assetsLoading && !assetError && !filteredAssets.length && (
-                <p>No matching BSC issuer tokens.</p>
-              )}
-            </>
-          )}
-          {panel === "hall" && (
-            <CivicCityHall
-              walletAddress={account}
-              balance={balance}
-              balanceLoading={balanceLoading}
-              balanceError={balanceError}
-              receipts={receipts}
-              onRefresh={() => setRefresh((n) => n + 1)}
-              onConnectWallet={async () => {
-                connect();
-                if (!account)
-                  throw Error(
-                    "Finish connecting your wallet in the wallet dialog.",
-                  );
-                return account;
-              }}
-              onFocusTicker={(ticker) => {
-                setSearch(ticker);
-                setPanel("market");
-              }}
-            />
-          )}
-          {panel === "services" && (
-            <>
-              <p className={styles.muted}>
-                Services are free city features. They never spend wallet funds.
-              </p>
-              <div className={styles.assets}>
-                {catalogue
-                  .filter((d) => d.category === "services")
-                  .map((d) => (
-                    <article className={styles.assetCard} key={d.kind}>
-                      <h3>{d.name}</h3>
-                      <p>{d.description}</p>
-                      <button
-                        className={styles.primary}
-                        disabled={layout.buildings.some(
-                          (b) => b.kind === d.kind,
-                        )}
-                        onClick={() => {
-                          setPlaceAsset(null);
-                          setPlaceKind(d.kind);
-                          setTool("build");
-                          setPanel(null);
-                          setNotice(`Place ${d.name} on your island. Free.`);
-                        }}
-                      >
-                        {layout.buildings.some((b) => b.kind === d.kind)
-                          ? "Placed"
-                          : "Place for free"}
-                      </button>
-                    </article>
-                  ))}
-              </div>
-            </>
-          )}
-          {panel === "research" && selectedLiveAsset && (
-            <>
-              <div className={styles.tradeIdentity}>
-                <strong>{selectedLiveAsset.name}</strong>
-                <span>
-                  {selectedLiveAsset.symbol} · {selectedLiveAsset.platform} ·
-                  BSC mainnet
-                </span>
-                <a
-                  href={bscAddressLink(selectedLiveAsset.address)}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  {selectedLiveAsset.address} <ExternalLink size={12} />
-                </a>
-              </div>
-              <dl className={styles.quote}>
-                <div>
-                  <dt>Observed token price</dt>
-                  <dd>
-                    {selectedLiveAsset.priceUsd === null
-                      ? "Unavailable"
-                      : money(Number(selectedLiveAsset.priceUsd))}
-                  </dd>
-                </div>
-                <div>
-                  <dt>Underlying reference</dt>
-                  <dd>
-                    {selectedLiveAsset.referencePriceUsd === null
-                      ? "Unavailable"
-                      : money(Number(selectedLiveAsset.referencePriceUsd))}
-                  </dd>
-                </div>
-                <div>
-                  <dt>Token-to-share ratio</dt>
-                  <dd>
-                    {selectedLiveAsset.tokenToShareRatio ?? "Unavailable"}
-                  </dd>
-                </div>
-                <div>
-                  <dt>Observation time</dt>
-                  <dd>
-                    {selectedLiveAsset.priceUpdatedAt
-                      ? new Date(
-                          selectedLiveAsset.priceUpdatedAt,
-                        ).toLocaleString()
-                      : "Unavailable"}
-                  </dd>
-                </div>
-                <div>
-                  <dt>Provider market status</dt>
-                  <dd>{selectedLiveAsset.marketStatus ?? "Unknown"}</dd>
-                </div>
-              </dl>
-              <p className={styles.muted}>
-                An issuer token has its own terms and eligibility rules. Holding
-                it does not automatically provide shareholder rights.
-                Availability is checked when requesting a quote.
-              </p>
-              {chartError && <p className={styles.error}>{chartError}</p>}
-              {chart && (
-                <TradingChart
-                  points={chart.points}
-                  ticker={selectedLiveAsset.ticker}
-                  contract={selectedLiveAsset.address}
-                  tokenName={selectedLiveAsset.symbol}
-                  livePrice={
-                    selectedLiveAsset.priceUsd
-                      ? Number(selectedLiveAsset.priceUsd)
-                      : undefined
-                  }
-                />
-              )}
-              <button
-                className={styles.primary}
-                disabled={pending}
-                onClick={() => openTrade(selectedLiveAsset, "buy")}
-              >
-                Review a buy quote
-              </button>
-            </>
-          )}
-          {panel === "advisor" && (
-            <>
-              <p className={styles.muted}>
-                Ask about your actual wallet allocation and observed stock
-                prices. Cokoo provides analysis; trades require your separate
-                review and wallet signature.
-              </p>
-              <label className={styles.inputLabel}>
-                Question
-                <textarea
-                  value={advisorQuestion}
-                  onChange={(e) => setAdvisorQuestion(e.target.value)}
-                  maxLength={500}
-                  placeholder="Review my portfolio allocation"
-                />
-              </label>
-              <button
-                className={styles.primary}
-                onClick={askAdvisor}
-                disabled={advisorBusy || !advisorQuestion.trim()}
-              >
-                {advisorBusy ? "Reviewing…" : "Ask Cokoo"}
-              </button>
-              {advisorReply && (
-                <p className={styles.advisorReply}>{advisorReply}</p>
-              )}
-              {advisorError && (
-                <p className={styles.error} role="alert">
-                  {advisorError}
-                </p>
-              )}
-            </>
-          )}
-          {panel === "help" && (
-            <>
-              <p>
-                Connect a wallet, fund it with USDT and BNB on BNB Smart Chain,
-                and review a small stock-token purchase in the Exchange. After
-                confirmation, place its building on the island. Selling returns
-                USDT directly to the same wallet.
-              </p>
-              <p>
-                Draw roads by dragging on the island. Services and roads are
-                free. Removing a building only changes your island layout. Every
-                issuer token has its own contract and trading availability.
-              </p>
-              <div className={styles.buttonRow}>
-                <button onClick={() => setGrid((g) => !g)}>
-                  Grid: {grid ? "on" : "off"}
-                </button>
-                <button onClick={() => setMotion((m) => !m)}>
-                  Motion: {motion ? "on" : "off"}
-                </button>
-                <button
+                  className="menu-row"
                   onClick={() => {
-                    setCameraReset((n) => n + 1);
                     setZoom(1);
+                    setCameraReset((n) => n + 1);
                   }}
                 >
                   Reset camera
+                  <Maximize2 size={15} />
                 </button>
-              </div>
-            </>
-          )}
+                <button className="menu-row" onClick={() => setPanel("help")}>
+                  Controls & shortcuts
+                  <HelpCircle size={15} />
+                </button>
+                <button
+                  className="menu-row"
+                  onClick={() => setRefresh((n) => n + 1)}
+                  disabled={balanceLoading}
+                >
+                  Refresh wallet
+                  <RefreshCw size={15} />
+                </button>
+                <button
+                  className="menu-row danger"
+                  onClick={() => setConfirmReset(true)}
+                  disabled={pending}
+                >
+                  Start a new city
+                  <Trash2 size={15} />
+                </button>
+                <p className="panel-disclaimer">
+                  Your layout saves automatically for each connected wallet.
+                  Resetting your city only clears buildings and roads; your
+                  wallet tokens and trade receipts remain.
+                </p>
+                {balanceError && (
+                  <p className="panel-disclaimer" role="alert">
+                    {balanceError}
+                  </p>
+                )}
+              </>
+            ) : (
+              <>
+                <p className="help-intro">
+                  Build your city from the ground up. Holdings stay in your BSC
+                  wallet.
+                </p>
+                {[
+                  ["Draw roads", "R, then click and drag"],
+                  ["Company buildings", "B, choose an issuer token"],
+                  ["City services", "S, choose, then click a plot"],
+                  ["Select / portfolio", "V"],
+                  ["Bulldoze layout", "X, then click a tile"],
+                  ["Pan the map", "Drag, or hold Space + drag"],
+                  ["Zoom", "Mouse wheel or + / −"],
+                  ["Construction grid", "G"],
+                  ["Undo / redo layout", "Ctrl Z / Ctrl Shift Z"],
+                  ["Cancel construction", "Esc or right-click"],
+                ].map(([label, key]) => (
+                  <div className="shortcut-row" key={label}>
+                    <span>{label}</span>
+                    <kbd>{key}</kbd>
+                  </div>
+                ))}
+                <p className="panel-disclaimer">
+                  Buy a supported issuer token with USDT in the Exchange. Once
+                  the real balance confirms, place its building. Sell through a
+                  reviewed quote to receive USDT. Removing a visual building
+                  does not sell tokens. Roads and services are free.
+                </p>
+              </>
+            )}
+          </div>
+        </aside>
+      )}
+      <footer className="command-bar">
+        <nav className="tool-palette" aria-label="Construction tools">
+          <button
+            className={`portfolio-select-button ${portfolioView ? "active portfolio-active" : tool === "inspect" && !category ? "active select-active" : ""}`}
+            onClick={toggleSelectPortfolio}
+            aria-label={
+              portfolioView
+                ? "Switch to Select mode"
+                : "Switch to Portfolio view"
+            }
+            aria-pressed={portfolioView}
+            title={
+              portfolioView
+                ? "Click or press V for Select mode"
+                : "Click or press V for Portfolio view"
+            }
+          >
+            {portfolioView ? (
+              <img
+                src="/assets/portfolio-menu.png"
+                alt="Portfolio view"
+                className="menu-custom-icon"
+              />
+            ) : (
+              <GameArt index={0} />
+            )}
+            <span>{portfolioView ? "Portfolio" : "Select"}</span>
+            <kbd>V</kbd>
+          </button>
+          <span className="tool-divider" />
+          <button
+            className={`build-main-button ${category || tool === "road" || (tool === "build" && placeKind) ? "active" : ""}`}
+            onClick={() =>
+              category
+                ? setCategory(null)
+                : chooseCategory(
+                    placeKind ? defFor(placeKind).category : lastCategory,
+                  )
+            }
+            aria-label="Builds menu"
+            aria-expanded={Boolean(category)}
+          >
+            <img
+              src="/assets/buids-menu.png"
+              alt="Build menu"
+              className="menu-custom-icon"
+            />
+            <span>Build</span>
+            <kbd>B</kbd>
+          </button>
+          <span className="tool-divider" />
+          <button
+            className={`bulldozer ${tool === "bulldoze" ? "active" : ""}`}
+            onClick={() => {
+              cancelPlacement();
+              setTool("bulldoze");
+              setCategory(null);
+              setPanel(null);
+              setSelected(null);
+              setNotice(
+                "Click a visual building or road to remove it. Ctrl Z undoes layout changes.",
+              );
+            }}
+            aria-label="Bulldoze tool"
+            aria-pressed={tool === "bulldoze"}
+          >
+            <GameArt index={4} />
+            <span>Bulldoze</span>
+            <kbd>X</kbd>
+          </button>
+        </nav>
+      </footer>
+      <div className="camera-controls" aria-label="Camera controls">
+        <button
+          onClick={() => setZoom((z) => Math.min(2, z + 0.1))}
+          aria-label="Zoom in"
+        >
+          <Plus size={16} />
+        </button>
+        <output>{Math.round(zoom * 100)}%</output>
+        <button
+          onClick={() => setZoom((z) => Math.max(0.5, z - 0.1))}
+          aria-label="Zoom out"
+        >
+          <Minus size={16} />
+        </button>
+        <button
+          onClick={() => {
+            setZoom(1);
+            setCameraReset((n) => n + 1);
+          }}
+          aria-label="Reset camera"
+        >
+          <Maximize2 size={15} />
+        </button>
+      </div>
+      <p
+        className={`mainnet-layout-notice ${noticeVisible || pending ? "visible" : ""}`}
+        role="status"
+        aria-live="polite"
+      >
+        {notice}
+        {pending && (
+          <button onClick={() => openPanel("hall")}>Check pending order</button>
+        )}
+      </p>
+      {hasHall &&
+        !panel &&
+        !scanMode &&
+        !intelBuilding &&
+        !trade &&
+        !category && (
+          <CityAdvisor
+            city={city}
+            prices={prices}
+            walletAddress={account}
+            balance={balance}
+            receipts={receipts}
+          />
+        )}
+      {confirmReset && (
+        <MainnetDialog
+          title="Start a new city?"
+          onClose={() => setConfirmReset(false)}
+        >
+          <p>
+            This clears only your saved buildings and roads for this wallet.
+            Tokens, USDT, and trade receipts stay intact.
+          </p>
+          <div className={styles.buttonRow}>
+            <button
+              className={styles.secondary}
+              onClick={() => setConfirmReset(false)}
+            >
+              Keep this city
+            </button>
+            <button
+              className={styles.primary}
+              disabled={pending}
+              onClick={() => {
+                commitLayout(emptyLayout());
+                cancelPlacement();
+                setSelected(null);
+                setPanel(null);
+                setConfirmReset(false);
+                setZoom(1);
+                setCameraReset((n) => n + 1);
+                setNotice(
+                  "Empty city started. Your wallet holdings are unchanged.",
+                );
+              }}
+            >
+              Start empty city
+            </button>
+          </div>
         </MainnetDialog>
       )}
       {trade && account && (
@@ -1182,6 +1566,7 @@ export default function MainnetCity() {
           asset={trade.asset}
           side={trade.side}
           account={account}
+          initialAmount={trade.amount}
           holding={holdingFor(trade.asset)?.formatted ?? "0"}
           balance={balance}
           getProvider={getProvider}
@@ -1200,5 +1585,16 @@ export default function MainnetCity() {
         onRefresh={() => setRefresh((n) => n + 1)}
       />
     </main>
+  );
+}
+function GameArt({ index }: { index: number }) {
+  return (
+    <span
+      aria-hidden="true"
+      className={`game-art art-${index}`}
+      style={{
+        backgroundPosition: `${(index % 3) * 50}% ${Math.floor(index / 3) * 100}%`,
+      }}
+    />
   );
 }

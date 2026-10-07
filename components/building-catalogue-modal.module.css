@@ -7,7 +7,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 1100;
+  z-index: 1200;
   padding: 20px;
   animation: fadeIn 0.2s ease-out;
 }
@@ -1014,4 +1014,100 @@
   border-radius: 3px;
   margin-top: 2px;
   width: fit-content;
+}
+
+/* Let the existing catalogue fit narrow screens without widening the dialog. */
+@media (max-width: 720px) {
+  .modalCard,
+  .body,
+  .headerLeft,
+  .categoryTabs,
+  .orderFormView,
+  .orderFormLayout,
+  .orderFormInputs,
+  .buildingShowcase,
+  .showcaseMeta,
+  .formGroup,
+  .nominalInputWrap,
+  .sectorStockPickerBox {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .header {
+    height: auto;
+    min-height: 52px;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 10px;
+  }
+
+  .headerLeft {
+    flex: 1;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+
+  .titleBadge {
+    align-self: flex-start;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+  }
+
+  .closeBtn {
+    flex-shrink: 0;
+  }
+
+  .categoryTabs {
+    flex-wrap: wrap;
+  }
+
+  .catTab {
+    flex: 1 1 auto;
+    min-width: 0;
+    padding: 5px 6px;
+  }
+
+  .orderFormLayout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .orderFormHeader,
+  .sectorFormHeader,
+  .searchBarRow,
+  .sectorStockPickerHeader,
+  .formLabelRow,
+  .priceRow {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .treasuryChip {
+    min-width: 0;
+    max-width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .searchBox {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  .nominalInput,
+  .searchInput,
+  .orderFormInputs input,
+  .orderFormInputs select {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .orderFormInputs > div,
+  .orderFormInputs > div > div,
+  .orderFormInputs > div > div > div {
+    min-width: 0;
+    max-width: 100%;
+  }
 }

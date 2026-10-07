@@ -1,6 +1,5 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import Image from "next/image";
 import {
   ArrowUpRight,
   Check,
@@ -10,25 +9,19 @@ import {
   RefreshCw,
   Search,
   Trash2,
+  Wallet,
 } from "lucide-react";
+import { catalogue, SECTOR_DEFINITIONS, money } from "../lib/city";
 import {
-  assets,
-  catalogue,
-  defFor,
-  isHeroTicker,
-  money,
-  priceOf,
-  sprite,
-  SECTOR_DEFINITIONS,
-  defForSector,
-  type SectorBuildingKind,
-} from "../lib/city";
-import { validateBundle } from "../lib/civic";
+  companyMetadata,
+  observedPrice,
+  walletHolding,
+} from "../lib/mainnet-research";
+import type { MainnetAsset } from "../lib/mainnet";
 import type { RwaSectorTab } from "../lib/rwa";
 import type { CivicProps } from "./civic-panel";
 import CivicResearch from "./civic-research";
 import RwaSessionClock from "./rwa-session-clock";
-import RwaSpreadBoard from "./rwa-spread-board";
 import StockLogo from "./stock-logo";
 import styles from "./civic-panel.module.css";
 
@@ -36,21 +29,35 @@ export default function CivicMarket(
   props: CivicProps & { onResetScroll: () => void },
 ) {
   const [view, setView] = useState<"research" | "bundle">("research");
-  const [ticker, setTicker] = useState(
-    assets.some((asset) => asset.ticker === props.initialTicker)
-      ? props.initialTicker!
-      : "NVDA",
+  const defaultAsset =
+    props.assets.find(
+      (asset) => asset.ticker === "NVDA" && asset.platform === "bstock",
+    ) ??
+    props.assets.find((asset) => asset.ticker === "NVDA") ??
+    props.assets[0];
+  const [address, setAddress] = useState(
+    props.initialAsset?.address ?? defaultAsset?.address ?? "",
   );
   const [search, setSearch] = useState("");
   const [sector, setSector] = useState("");
+  const [issuer, setIssuer] = useState("");
   const [revision, setRevision] = useState(0);
-  const [bundleTickers, setBundleTickers] = useState<string[]>([]);
-  const [bundleAmounts, setBundleAmounts] = useState<Record<string, string>>(
-    {},
-  );
+  const [selected, setSelected] = useState<string[]>([]);
+  const [amounts, setAmounts] = useState<Record<string, string>>({});
+  const [visible, setVisible] = useState(48);
   const research = useRef<HTMLDivElement>(null);
   const [compact, setCompact] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const inspection = props.mode === "data";
+  const selectedAsset =
+    props.assets.find(
+      (asset) => asset.address.toLowerCase() === address.toLowerCase(),
+    ) ??
+    defaultAsset ??
+    null;
+  const storageKey = `stockva.mainnet.56.basket.${(props.walletAddress ?? props.balance?.account ?? "visitor").toLowerCase()}`;
+  const [loadedKey, setLoadedKey] = useState<string | null>(null);
+
   useEffect(() => {
     const media = window.matchMedia("(max-width: 700px)");
     const change = () => setCompact(media.matches);
@@ -62,37 +69,72 @@ export default function CivicMarket(
     props.onResetScroll();
   }, [view, props.onResetScroll]);
   useEffect(() => {
-    if (
-      props.initialTicker &&
-      assets.some((asset) => asset.ticker === props.initialTicker)
-    ) {
-      setTicker(props.initialTicker);
+    if (props.initialAsset) {
+      setAddress(props.initialAsset.address);
       setView("research");
     }
-  }, [props.initialTicker]);
-  const available = assets.filter(
-    (asset) =>
-      !props.city.buildings.some(
-        (building) => defFor(building.kind).ticker === asset.ticker,
-      ),
-  );
-  function addToBundle(symbol: string) {
-    if (!available.some((asset) => asset.ticker === symbol)) return;
-    setBundleTickers((previous) => [...new Set([...previous, symbol])]);
-    setBundleAmounts((previous) => ({
+  }, [props.initialAsset]);
+  useEffect(() => {
+    try {
+      const stored = JSON.parse(localStorage.getItem(storageKey) ?? "null");
+      setSelected(
+        Array.isArray(stored?.selected)
+          ? stored.selected
+              .filter(
+                (item: unknown): item is string =>
+                  typeof item === "string" && /^0x[0-9a-fA-F]{40}$/.test(item),
+              )
+              .slice(0, 100)
+          : [],
+      );
+      setAmounts(
+        stored?.amounts && typeof stored.amounts === "object"
+          ? Object.fromEntries(
+              Object.entries(stored.amounts).filter(
+                (entry): entry is [string, string] =>
+                  /^0x[0-9a-fA-F]{40}$/.test(entry[0]) &&
+                  typeof entry[1] === "string" &&
+                  entry[1].length < 80,
+              ),
+            )
+          : {},
+      );
+    } catch {
+      setSelected([]);
+      setAmounts({});
+    }
+    setLoadedKey(storageKey);
+  }, [storageKey]);
+  useEffect(() => {
+    if (loadedKey !== storageKey) return;
+    try {
+      localStorage.setItem(storageKey, JSON.stringify({ selected, amounts }));
+    } catch {
+      /* Basket preferences never become wallet balances or execution. */
+    }
+  }, [selected, amounts, storageKey, loadedKey]);
+  function addToBundle(asset: MainnetAsset) {
+    setSelected((previous) => [
+      ...new Set([...previous, asset.address.toLowerCase()]),
+    ]);
+    setAmounts((previous) => ({
       ...previous,
-      [symbol]: previous[symbol] ?? "1",
+      [asset.address.toLowerCase()]:
+        previous[asset.address.toLowerCase()] ?? "1",
     }));
     setView("bundle");
   }
-  const inspection = props.mode === "data";
-  const shown = assets.filter(
-    (asset) =>
-      (!sector || asset.sector === sector) &&
-      `${asset.ticker} ${asset.name} ${asset.sector}`
+  const shown = props.assets.filter((asset) => {
+    const metadata = companyMetadata(asset);
+    return (
+      (!sector || metadata.sector === sector) &&
+      (!issuer || asset.platform === issuer) &&
+      `${asset.ticker} ${asset.symbol} ${asset.name} ${asset.platform} ${metadata.sector}`
         .toLowerCase()
-        .includes(search.trim().toLowerCase()),
-  );
+        .includes(search.trim().toLowerCase())
+    );
+  });
+
   return (
     <>
       {!inspection && (
@@ -107,8 +149,8 @@ export default function CivicMarket(
             aria-pressed={view === "bundle"}
             onClick={() => setView("bundle")}
           >
-            <Layers size={16} /> Baskets & Bundles
-            {bundleTickers.length ? ` (${bundleTickers.length})` : ""}
+            <Layers size={16} /> Baskets & Bundles{" "}
+            {selected.length ? `(${selected.length})` : ""}
           </button>
         </nav>
       )}
@@ -117,14 +159,14 @@ export default function CivicMarket(
           <div>
             <h3>Know what backs the ticker.</h3>
             <p>
-              Check issuer identity, deployment addresses, reserve reports and
-              price provenance. Missing evidence stays visible.
+              Check the selected issuer, exact BSC contract, reserve evidence
+              and price provenance. Missing evidence stays visible.
             </p>
           </div>
           <div
             style={{
               display: "flex",
-              gap: "8px",
+              gap: 8,
               alignItems: "center",
               flexWrap: "wrap",
             }}
@@ -136,83 +178,100 @@ export default function CivicMarket(
           </div>
         </div>
       )}
-      {inspection && (
-        <RwaSpreadBoard
-          feed={props.feed}
-          tickers={[
-            ...new Set(
-              props.city.buildings
-                .map((building) => defFor(building.kind).ticker)
-                .filter((ticker): ticker is string => Boolean(ticker)),
-            ),
-          ]}
-        />
-      )}
       {!inspection && view === "bundle" ? (
         <BundleBuilder
           {...props}
-          selected={bundleTickers}
-          amounts={bundleAmounts}
-          setSelected={setBundleTickers}
-          setAmounts={setBundleAmounts}
-          available={available.map((asset) => asset.ticker)}
+          selected={selected}
+          amounts={amounts}
+          setSelected={setSelected}
+          setAmounts={setAmounts}
         />
       ) : (
-        <>
-          <div className={styles.marketLayout}>
-            <aside className={styles.catalogue} aria-label="Asset catalogue">
-              <div className={styles.catalogueHead}>
-                <h4>
-                  {inspection ? "Asset inspection" : "Research catalogue"}
-                </h4>
-                <span>{shown.length} assets</span>
-              </div>
-              <details
-                className={styles.cataloguePicker}
-                open={!compact || pickerOpen}
-                onToggle={(event) => {
-                  if (compact) setPickerOpen(event.currentTarget.open);
-                }}
-              >
-                <summary>
-                  <span>{ticker} · Change asset</span>
-                  <ChevronDown size={16} />
-                </summary>
-                <div>
-                  <label className={styles.search}>
-                    <span className={styles.srOnly}>
-                      Search by ticker, company or sector
-                    </span>
-                    <Search size={16} />
-                    <input
-                      type="search"
-                      value={search}
-                      onChange={(event) => setSearch(event.target.value)}
-                      placeholder="AAPL, NVIDIA…"
-                    />
-                  </label>
-                  <label className={styles.field}>
-                    Sector
-                    <select
-                      value={sector}
-                      onChange={(event) => setSector(event.target.value)}
-                    >
-                      <option value="">All sectors</option>
-                      {[...new Set(assets.map((asset) => asset.sector))]
-                        .sort()
-                        .map((name) => (
-                          <option key={name}>{name}</option>
-                        ))}
-                    </select>
-                  </label>
-                  <div className={styles.catalogueList}>
-                    {shown.map((asset) => (
+        <div className={styles.marketLayout}>
+          <aside className={styles.catalogue} aria-label="Asset catalogue">
+            <div className={styles.catalogueHead}>
+              <h4>{inspection ? "Asset inspection" : "Research catalogue"}</h4>
+              <span>{shown.length} tokens</span>
+            </div>
+            <details
+              className={styles.cataloguePicker}
+              open={!compact || pickerOpen}
+              onToggle={(event) => {
+                if (compact) setPickerOpen(event.currentTarget.open);
+              }}
+            >
+              <summary>
+                <span>
+                  {selectedAsset?.symbol ?? "Select a token"} · Change asset
+                </span>
+                <ChevronDown size={16} />
+              </summary>
+              <div>
+                <label className={styles.search}>
+                  <span className={styles.srOnly}>
+                    Search company, ticker or issuer
+                  </span>
+                  <Search size={16} />
+                  <input
+                    type="search"
+                    value={search}
+                    onChange={(event) => {
+                      setSearch(event.target.value);
+                      setVisible(48);
+                    }}
+                    placeholder="AAPL, NVIDIA, bStocks…"
+                  />
+                </label>
+                <label className={styles.field}>
+                  Sector
+                  <select
+                    value={sector}
+                    onChange={(event) => {
+                      setSector(event.target.value);
+                      setVisible(48);
+                    }}
+                  >
+                    <option value="">All sectors</option>
+                    {[
+                      ...new Set(
+                        props.assets.map(
+                          (asset) => companyMetadata(asset).sector,
+                        ),
+                      ),
+                    ]
+                      .sort()
+                      .map((name) => (
+                        <option key={name}>{name}</option>
+                      ))}
+                  </select>
+                </label>
+                <label className={styles.field}>
+                  Issuer
+                  <select
+                    value={issuer}
+                    onChange={(event) => {
+                      setIssuer(event.target.value);
+                      setVisible(48);
+                    }}
+                  >
+                    <option value="">All issuers</option>
+                    {[...new Set(props.assets.map((asset) => asset.platform))]
+                      .sort()
+                      .map((name) => (
+                        <option key={name}>{name}</option>
+                      ))}
+                  </select>
+                </label>
+                <div className={styles.catalogueList}>
+                  {shown.slice(0, visible).map((asset) => {
+                    const price = observedPrice(asset);
+                    return (
                       <button
-                        key={asset.ticker}
+                        key={asset.address}
                         className={styles.assetOption}
-                        aria-pressed={ticker === asset.ticker}
+                        aria-pressed={selectedAsset?.address === asset.address}
                         onClick={() => {
-                          setTicker(asset.ticker);
+                          setAddress(asset.address);
                           if (compact) {
                             setPickerOpen(false);
                             requestAnimationFrame(() =>
@@ -230,78 +289,109 @@ export default function CivicMarket(
                           size={30}
                         />
                         <span>
-                          <strong>{asset.ticker}</strong>
-                          <small>{asset.name}</small>
+                          <strong>{asset.symbol}</strong>
+                          <small>
+                            {companyMetadata(asset).name} · {asset.platform}
+                          </small>
                         </span>
                         <div>
-                          {props.feed.quotes[asset.ticker]?.price > 0
-                            ? money(props.feed.quotes[asset.ticker].price)
-                            : "—"}
+                          {price === null ? "—" : money(price)}
                           <small>
-                            {props.feed.quotes[asset.ticker]?.status === "live"
-                              ? "Observed"
-                              : props.feed.quotes[asset.ticker]?.status ===
-                                  "stale"
-                                ? "Stale"
-                                : "Unavailable"}
+                            {price === null
+                              ? "Unavailable"
+                              : !asset.priceUpdatedAt
+                                ? "Time unavailable"
+                                : Date.now() -
+                                      Date.parse(asset.priceUpdatedAt) >
+                                    120000
+                                  ? "Stale"
+                                  : "Observed"}
                           </small>
                         </div>
                       </button>
-                    ))}
-                    {!shown.length && (
-                      <div className={styles.empty}>
-                        <h4>No matching assets.</h4>
-                        <p>Try a ticker, company or another sector.</p>
-                        <button
-                          className={styles.textButton}
-                          onClick={() => {
-                            setSearch("");
-                            setSector("");
-                          }}
-                        >
-                          Clear filters
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                  <p className={styles.caption}>
-                    {inspection
-                      ? "Each asset is checked against issuer metadata. A research listing alone does not confirm that a token exists."
-                      : "Select an asset to inspect details, buy directly, or add to a sector basket."}
-                  </p>
-                  <button
-                    className={styles.textButton}
-                    disabled={props.loading}
-                    onClick={() => {
-                      props.onRetry();
-                      setRevision((value) => value + 1);
-                    }}
-                  >
-                    <RefreshCw size={14} />
-                    {props.loading ? "Refreshing quotes…" : "Refresh data"}
-                  </button>
+                    );
+                  })}
+                  {!shown.length && (
+                    <div className={styles.empty}>
+                      <h4>
+                        {props.loading
+                          ? "Loading issuer tokens…"
+                          : "No matching tokens."}
+                      </h4>
+                      <p>Try a ticker, company, sector or issuer.</p>
+                      <button
+                        className={styles.textButton}
+                        onClick={() => {
+                          setSearch("");
+                          setSector("");
+                          setIssuer("");
+                        }}
+                      >
+                        Clear filters
+                      </button>
+                    </div>
+                  )}
+                  {shown.length > visible && (
+                    <button
+                      className={styles.textButton}
+                      onClick={() => setVisible((count) => count + 48)}
+                    >
+                      Show more ({Math.min(visible, shown.length)} of{" "}
+                      {shown.length})
+                    </button>
+                  )}
                 </div>
-              </details>
-            </aside>
-            <div ref={research} className={styles.research}>
+                <p className={styles.caption}>
+                  {inspection
+                    ? "Issuer evidence is checked for this exact contract."
+                    : "Choose an issuer token to research, trade or add to a basket."}
+                </p>
+                <button
+                  className={styles.textButton}
+                  disabled={props.loading}
+                  onClick={() => {
+                    props.onRetry();
+                    setRevision((value) => value + 1);
+                  }}
+                >
+                  <RefreshCw size={14} />
+                  {props.loading ? "Refreshing…" : "Refresh data"}
+                </button>
+              </div>
+            </details>
+          </aside>
+          <div ref={research} className={styles.research}>
+            {selectedAsset ? (
               <CivicResearch
-                key={`${ticker}:${inspection}`}
-                ticker={ticker}
+                key={`${selectedAsset.address}:${inspection}`}
                 {...props}
+                asset={selectedAsset}
                 revision={revision}
-                onAddToBundle={() => addToBundle(ticker)}
-                bundleAvailable={available.some(
-                  (asset) => asset.ticker === ticker,
-                )}
+                onAddToBundle={() => addToBundle(selectedAsset)}
+                bundleAvailable={
+                  !selected.includes(selectedAsset.address.toLowerCase())
+                }
               />
-            </div>
+            ) : (
+              <div className={styles.empty}>
+                <h4>
+                  {props.loading
+                    ? "Loading mainnet issuer catalogue…"
+                    : "Issuer catalogue unavailable"}
+                </h4>
+                <p>Refresh data to retrieve available BSC stock tokens.</p>
+                <button className={styles.secondary} onClick={props.onRetry}>
+                  Retry catalogue
+                </button>
+              </div>
+            )}
           </div>
-          {props.feed.error && (
-            <p className={styles.warning} role="status">
-              {props.feed.error}
-            </p>
-          )}
-        </>
+        </div>
+      )}
+      {props.error && (
+        <p className={styles.warning} role="status">
+          {props.error}
+        </p>
       )}
     </>
   );
@@ -312,288 +402,191 @@ type BundleProps = CivicProps & {
   amounts: Record<string, string>;
   setSelected: React.Dispatch<React.SetStateAction<string[]>>;
   setAmounts: React.Dispatch<React.SetStateAction<Record<string, string>>>;
-  available: string[];
 };
-
-function BundleBuilder({
-  city,
-  prices,
-  feed,
-  onBuyBundle,
-  selected,
-  amounts,
-  setSelected,
-  setAmounts,
-  available,
-}: BundleProps) {
+function BundleBuilder(props: BundleProps) {
+  const { assets, balance, selected, amounts, setSelected, setAmounts } = props;
   const [search, setSearch] = useState("");
-  const [selectedSector, setSelectedSector] = useState<string>("all");
+  const [sector, setSector] = useState("all");
   const [splitBudget, setSplitBudget] = useState("1");
-  const [touched, setTouched] = useState<Record<string, boolean>>({});
   const [message, setMessage] = useState("");
-  const [rwaTabs, setRwaTabs] = useState<RwaSectorTab[]>([]);
-  useEffect(() => {
-    let active = true;
-    fetch("/api/rwa/sectors", { cache: "no-store" })
-      .then((response) => (response.ok ? response.json() : null))
-      .then((data) => {
-        if (active && data?.available && Array.isArray(data.tabs))
-          setRwaTabs(data.tabs);
-      })
-      .catch(() => {
-        /* official tabs stay hidden; house sectors stand on their own */
-      });
-    return () => {
-      active = false;
-    };
-  }, []);
+  const [tabs, setTabs] = useState<RwaSectorTab[]>([]);
+  const [visible, setVisible] = useState(48);
   const review = useRef<HTMLElement>(null);
   const chooser = useRef<HTMLElement>(null);
-
-  const validation = validateBundle(selected, amounts, available, city.cash);
-  const pricesAvailable = selected.every(
-    (ticker) =>
-      feed.quotes[ticker]?.status === "live" && feed.quotes[ticker]?.price > 0,
+  const account = props.walletAddress ?? balance?.account;
+  const pending = props.receipts.some(
+    (receipt) =>
+      receipt.status === "PENDING" &&
+      receipt.account.toLowerCase() === account?.toLowerCase(),
   );
-
-  const filteredOptions = assets.filter((asset) => {
-    if (selectedSector === "hero") {
-      if (!isHeroTicker(asset.ticker)) return false;
-    } else if (selectedSector !== "all") {
-      const secDef = defForSector(selectedSector);
-      if (!secDef || !secDef.stocks.includes(asset.ticker)) return false;
-    }
-    if (search.trim()) {
-      const q = search.trim().toLowerCase();
-      const matches =
-        asset.name.toLowerCase().includes(q) ||
-        asset.ticker.toLowerCase().includes(q) ||
-        asset.sector.toLowerCase().includes(q);
-      if (!matches) return false;
-    }
-    return true;
-  });
-
-  function preset(tickers: string[]) {
-    const eligible = tickers.filter((ticker) => available.includes(ticker));
-    setSelected(eligible);
+  const chosen = selected
+    .map((address) =>
+      assets.find((asset) => asset.address.toLowerCase() === address),
+    )
+    .filter((asset): asset is MainnetAsset => Boolean(asset));
+  const total = chosen.reduce((sum, asset) => {
+    const value = Number(amounts[asset.address.toLowerCase()]);
+    return sum + (Number.isFinite(value) && value > 0 ? value : 0);
+  }, 0);
+  const budget = balance ? Number(balance.usdt.formatted) : null;
+  const shown = assets.filter(
+    (asset) =>
+      (sector === "all" || companyMetadata(asset).sector === sector) &&
+      `${asset.ticker} ${asset.symbol} ${asset.name} ${asset.platform}`
+        .toLowerCase()
+        .includes(search.trim().toLowerCase()),
+  );
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch("/api/rwa/sectors", { cache: "no-store", signal: controller.signal })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data) => {
+        if (data?.available && Array.isArray(data.tabs)) setTabs(data.tabs);
+      })
+      .catch(() => {
+        /* Unavailable taxonomy stays absent. */
+      });
+    return () => controller.abort();
+  }, []);
+  function toggle(asset: MainnetAsset) {
+    const address = asset.address.toLowerCase();
+    setSelected((previous) =>
+      previous.includes(address)
+        ? previous.filter((item) => item !== address)
+        : [...previous, address],
+    );
+    setAmounts((previous) => ({
+      ...previous,
+      [address]: previous[address] ?? "1",
+    }));
     setMessage("");
-    const perStock =
-      eligible.length > 10 && city.cash > 0
-        ? Math.max(1, Math.floor(city.cash / eligible.length))
-        : 1;
+  }
+  function preset(tickers: string[]) {
+    // A preset chooses listed issuer tokens, whose full identities remain visible in review.
+    const chosen = tickers
+      .map(
+        (ticker) =>
+          assets.find(
+            (asset) => asset.ticker === ticker && asset.platform === "bstock",
+          ) ?? assets.find((asset) => asset.ticker === ticker),
+      )
+      .filter((asset): asset is MainnetAsset => Boolean(asset));
+    setSelected(chosen.map((asset) => asset.address.toLowerCase()));
     setAmounts((previous) => ({
       ...previous,
       ...Object.fromEntries(
-        eligible.map((ticker) => [
-          ticker,
-          previous[ticker] ?? String(perStock),
+        chosen.map((asset) => [
+          asset.address.toLowerCase(),
+          previous[asset.address.toLowerCase()] ?? "1",
         ]),
       ),
     }));
-  }
-
-  function toggleSectorBasket(secKey: SectorBuildingKind) {
-    const secDef = defForSector(secKey);
-    if (!secDef) return;
-    const unbuilt = secDef.stocks.filter((ticker) =>
-      available.includes(ticker),
-    );
-    if (!unbuilt.length) {
-      setMessage(
-        `All stocks in ${secDef.name} are already built on your island.`,
-      );
-      return;
-    }
-    const allSelected = unbuilt.every((ticker) => selected.includes(ticker));
-    if (allSelected) {
-      setSelected((prev) => prev.filter((t) => !unbuilt.includes(t)));
-      setMessage(`Removed ${secDef.name} stocks from basket.`);
-    } else {
-      setSelected((prev) => [...new Set([...prev, ...unbuilt])]);
-      setAmounts((prev) => ({
-        ...prev,
-        ...Object.fromEntries(unbuilt.map((t) => [t, prev[t] ?? "1"])),
-      }));
-      setMessage(
-        `Added ${unbuilt.length} stocks from ${secDef.name} to basket.`,
-      );
-    }
-  }
-
-  function toggle(ticker: string) {
-    setSelected((previous) =>
-      previous.includes(ticker)
-        ? previous.filter((item) => item !== ticker)
-        : [...previous, ticker],
-    );
-    setAmounts((previous) => ({
-      ...previous,
-      [ticker]: previous[ticker] ?? "1",
-    }));
-    setMessage("");
-  }
-
-  function handleSplitBudget() {
-    const total = parseFloat(splitBudget);
-    if (!Number.isFinite(total) || total <= 0) {
-      setMessage("Enter a valid total budget to distribute.");
-      return;
-    }
-    if (!selected.length) {
-      setMessage("Select at least one company first.");
-      return;
-    }
-    const perStock = Math.max(1, Math.floor(total / selected.length));
-    setAmounts((prev) => ({
-      ...prev,
-      ...Object.fromEntries(selected.map((t) => [t, String(perStock)])),
-    }));
     setMessage(
-      `Distributed ${money(total)} evenly (${money(perStock)} per company).`,
+      chosen.length
+        ? "Review each selected issuer token before signing."
+        : "No supported issuer tokens are available for this basket.",
     );
   }
-
-  const activeSectorDef =
-    selectedSector !== "all" && selectedSector !== "hero"
-      ? defForSector(selectedSector)
-      : null;
-
-  const unbuiltInActiveSector = activeSectorDef
-    ? activeSectorDef.stocks.filter((t) => available.includes(t))
-    : selectedSector === "hero"
-      ? assets
-          .filter((a) => isHeroTicker(a.ticker) && available.includes(a.ticker))
-          .map((a) => a.ticker)
-      : [];
-
-  const allActiveSectorSelected =
-    unbuiltInActiveSector.length > 0 &&
-    unbuiltInActiveSector.every((t) => selected.includes(t));
-
+  const sectorDefinition = SECTOR_DEFINITIONS.find((item) =>
+    item.stocks.some((ticker) =>
+      assets.some(
+        (asset) =>
+          asset.ticker === ticker && companyMetadata(asset).sector === sector,
+      ),
+    ),
+  );
   return (
     <>
       <div className={styles.intro}>
         <div>
           <h3>City Baskets & Sector Bundles</h3>
           <p>
-            Assemble multi-stock baskets by sector or hand-pick individual
-            companies. Place your building drafts on the island, then confirm
-            together in one transaction on BNB Smart Chain.
+            Assemble a basket by sector or choose individual issuer tokens. Each
+            purchase gets its own live quote and wallet confirmation.
           </p>
         </div>
         <div
           style={{
             display: "flex",
-            gap: "8px",
+            gap: 8,
             alignItems: "center",
             flexWrap: "wrap",
           }}
         >
           <RwaSessionClock />
           <span className={styles.statusBadge}>
-            {money(city.cash)} city cash
+            {budget === null
+              ? "Wallet balance unavailable"
+              : `${budget.toLocaleString(undefined, { maximumFractionDigits: 6 })} USDT available`}
           </span>
         </div>
       </div>
-
-      {/* 1-Click Sector Baskets Carousel */}
       <section
         className={styles.sectorBasketsSection}
-        aria-label="1-Click Sector Baskets"
+        aria-label="Sector baskets"
       >
         <div className={styles.sectionHeading}>
           <h4>1-Click Sector Baskets</h4>
-          <span>10 industry sectors</span>
+          <span>Supported issuer tokens</span>
         </div>
         <div className={styles.sectorPresetsRow}>
-          {SECTOR_DEFINITIONS.map((sec) => {
-            const unbuiltCount = sec.stocks.filter((t) =>
-              available.includes(t),
+          {SECTOR_DEFINITIONS.map((definition) => {
+            const available = definition.stocks.filter((ticker) =>
+              assets.some((asset) => asset.ticker === ticker),
+            );
+            const selectedCount = definition.stocks.filter((ticker) =>
+              chosen.some((asset) => asset.ticker === ticker),
             ).length;
-            const selectedCount = sec.stocks.filter((t) =>
-              selected.includes(t),
-            ).length;
-            const isAllSelected =
-              unbuiltCount > 0 &&
-              sec.stocks
-                .filter((t) => available.includes(t))
-                .every((t) => selected.includes(t));
             return (
               <button
-                key={sec.key}
+                key={definition.key}
                 type="button"
                 className={styles.sectorPresetBtn}
-                aria-pressed={isAllSelected}
-                onClick={() => toggleSectorBasket(sec.key)}
-                title={`Toggle ${sec.name} basket`}
+                disabled={!available.length}
+                aria-pressed={Boolean(
+                  available.length && selectedCount === available.length,
+                )}
+                onClick={() => preset(available)}
+                title={`Select ${definition.name} basket`}
               >
                 <div className={styles.sectorPresetHeader}>
                   <span
                     className={styles.sectorPill}
                     style={{
-                      backgroundColor: `${sec.color}22`,
-                      color: sec.color,
-                      border: `1px solid ${sec.color}55`,
+                      backgroundColor: `${definition.color}22`,
+                      color: definition.color,
+                      border: `1px solid ${definition.color}55`,
                     }}
                   >
-                    {sec.badge}
+                    {definition.badge}
                   </span>
-                  {isAllSelected && (
-                    <Check size={14} style={{ color: "var(--accent)" }} />
-                  )}
+                  {selectedCount > 0 && <Check size={14} />}
                 </div>
                 <span className={styles.sectorPresetName}>
-                  {sec.name.replace(
+                  {definition.name.replace(
                     / Tower| Complex| Plaza| Grid & Terminal| Works| Network Hub| Pavilion| Conglomerate| Foundry| Exchange/,
                     "",
                   )}
                 </span>
                 <span className={styles.sectorPresetCount}>
-                  {selectedCount > 0
-                    ? `${selectedCount}/${sec.stocks.length} selected`
-                    : `${unbuiltCount}/${sec.stocks.length} available`}
+                  {selectedCount
+                    ? `${selectedCount} selected`
+                    : `${available.length} companies available`}
                 </span>
               </button>
             );
           })}
         </div>
       </section>
-
-      <form
-        className={styles.bundleLayout}
-        onSubmit={(event) => {
-          event.preventDefault();
-          setTouched(
-            Object.fromEntries(selected.map((ticker) => [ticker, true])),
-          );
-          if (!validation.valid || !pricesAvailable) {
-            setMessage(
-              validation.error ||
-                "Refresh available BSC token prices before continuing.",
-            );
-            return;
-          }
-          const items = validation.tickers.map((ticker) => ({
-            kind: catalogue.find((definition) => definition.ticker === ticker)!
-              .kind,
-            amount: Number(amounts[ticker]),
-          }));
-          const result = onBuyBundle(items);
-          if (result) setMessage(result);
-        }}
-      >
+      <div className={styles.bundleLayout}>
         <section ref={chooser}>
           <div className={styles.sectionHeading}>
             <h4>Choose your companies</h4>
-            <span>{available.length} of 100 available</span>
+            <span>{assets.length} issuer tokens</span>
           </div>
           <p className={styles.caption}>
-            Pick companies one by one or filter by sector. One building per
-            company.
+            Every issuer token has its own contract, price and trading route.
           </p>
-
-          {/* Quick Thematic Presets */}
           <div className={styles.bundlePresets}>
             <button
               className={styles.chip}
@@ -615,8 +608,10 @@ function BundleBuilder({
               onClick={() =>
                 preset(
                   SECTOR_DEFINITIONS.map(
-                    (sec) =>
-                      sec.stocks.find((t) => available.includes(t)) ?? "",
+                    (definition) =>
+                      definition.stocks.find((ticker) =>
+                        assets.some((asset) => asset.ticker === ticker),
+                      ) ?? "",
                   ).filter(Boolean),
                 )
               }
@@ -634,199 +629,122 @@ function BundleBuilder({
               Clear selection
             </button>
           </div>
-
-          {/* Official RWA taxonomy (Binance Web3: Magnificent 7, AI Chips, ETF…) */}
-          {rwaTabs.length > 0 && (
+          {tabs.length > 0 && (
             <div
               className={styles.bundlePresets}
               aria-label="Official RWA baskets"
             >
-              <span
-                style={{
-                  fontSize: "11px",
-                  fontWeight: 700,
-                  color: "var(--subtle)",
-                  alignSelf: "center",
-                }}
-              >
-                Binance tabs:
-              </span>
-              {rwaTabs.map((tab) => {
+              <span className={styles.caption}>Binance tabs:</span>
+              {tabs.map((tab) => {
                 const count = tab.tickers.filter((ticker) =>
-                  available.includes(ticker),
+                  assets.some((asset) => asset.ticker === ticker),
                 ).length;
-                if (!count) return null;
-                const isSelected =
-                  selected.length > 0 &&
-                  tab.tickers
-                    .filter((t) => available.includes(t))
-                    .every((t) => selected.includes(t));
-                return (
+                return count ? (
                   <button
                     key={tab.id}
-                    className={`${styles.chip} ${isSelected ? styles.chipActive : ""}`}
+                    className={styles.chip}
                     type="button"
-                    title={`Add ${tab.label}: ${tab.tickers.join(", ")}`}
-                    onClick={() => {
-                      preset(tab.tickers);
-                      setMessage(
-                        `Loaded Binance basket: ${tab.label} (${count} stocks).`,
-                      );
-                    }}
+                    onClick={() => preset(tab.tickers)}
                   >
                     {tab.label} ({count})
                   </button>
-                );
+                ) : null;
               })}
             </div>
           )}
-
-          {/* Sector Filter Tabs */}
           <div
             className={styles.sectorFilterTabs}
-            role="tablist"
             aria-label="Filter stocks by sector"
           >
             <button
               type="button"
-              className={`${styles.sectorFilterTab} ${selectedSector === "all" ? styles.sectorFilterTabActive : ""}`}
-              onClick={() => setSelectedSector("all")}
+              className={`${styles.sectorFilterTab} ${sector === "all" ? styles.sectorFilterTabActive : ""}`}
+              onClick={() => {
+                setSector("all");
+                setVisible(48);
+              }}
             >
-              All Stocks (100)
+              All tokens ({assets.length})
             </button>
-            <button
-              type="button"
-              className={`${styles.sectorFilterTab} ${selectedSector === "hero" ? styles.sectorFilterTabActive : ""}`}
-              onClick={() => setSelectedSector("hero")}
-            >
-              Hero Bespoke (30)
-            </button>
-            {SECTOR_DEFINITIONS.map((sec) => (
-              <button
-                key={sec.key}
-                type="button"
-                className={`${styles.sectorFilterTab} ${selectedSector === sec.key ? styles.sectorFilterTabActive : ""}`}
-                onClick={() => setSelectedSector(sec.key)}
-              >
-                {sec.badge} ({sec.stocks.length})
-              </button>
-            ))}
+            {[...new Set(assets.map((asset) => companyMetadata(asset).sector))]
+              .sort()
+              .map((name) => (
+                <button
+                  key={name}
+                  type="button"
+                  className={`${styles.sectorFilterTab} ${sector === name ? styles.sectorFilterTabActive : ""}`}
+                  onClick={() => {
+                    setSector(name);
+                    setVisible(48);
+                  }}
+                >
+                  {name}
+                </button>
+              ))}
           </div>
-
-          {/* Active Sector Banner (if a sector or hero tab is active) */}
-          {(activeSectorDef || selectedSector === "hero") && (
+          {sector !== "all" && (
             <div className={styles.sectorBanner}>
               <div className={styles.sectorBannerInfo}>
                 <div className={styles.sectorBannerTitle}>
-                  <span
-                    className={styles.sectorPill}
-                    style={{
-                      backgroundColor: `${activeSectorDef?.color ?? "#f0b90b"}22`,
-                      color: activeSectorDef?.color ?? "#f0b90b",
-                      border: `1px solid ${activeSectorDef?.color ?? "#f0b90b"}55`,
-                    }}
-                  >
-                    {activeSectorDef?.badge ?? "HERO"}
+                  <span className={styles.sectorPill}>
+                    {sectorDefinition?.badge ?? sector}
                   </span>
-                  <span>
-                    {activeSectorDef?.name ?? "Bespoke Corporate Headquarters"}
-                  </span>
+                  <span>{sector}</span>
                 </div>
                 <p className={styles.sectorBannerDesc}>
-                  {activeSectorDef?.description ??
-                    "30 flagship global corporations with dedicated 4-tier architectural models."}
+                  {sectorDefinition?.description ??
+                    "Select the issuer tokens you want to review."}
                 </p>
               </div>
-              {unbuiltInActiveSector.length > 0 && (
-                <button
-                  type="button"
-                  className={styles.sectorBannerBtn}
-                  onClick={() => {
-                    if (allActiveSectorSelected) {
-                      setSelected((prev) =>
-                        prev.filter((t) => !unbuiltInActiveSector.includes(t)),
-                      );
-                    } else {
-                      setSelected((prev) => [
-                        ...new Set([...prev, ...unbuiltInActiveSector]),
-                      ]);
-                      setAmounts((prev) => ({
-                        ...prev,
-                        ...Object.fromEntries(
-                          unbuiltInActiveSector.map((t) => [t, prev[t] ?? "1"]),
-                        ),
-                      }));
-                    }
-                  }}
-                >
-                  {allActiveSectorSelected
-                    ? `Deselect ${unbuiltInActiveSector.length} stocks`
-                    : `+ Add all ${unbuiltInActiveSector.length} available`}
-                </button>
-              )}
+              <button
+                type="button"
+                className={styles.sectorBannerBtn}
+                onClick={() =>
+                  preset([...new Set(shown.map((asset) => asset.ticker))])
+                }
+              >
+                Add sector companies
+              </button>
             </div>
           )}
-
-          {/* Search bar */}
           <label className={styles.search}>
-            <span className={styles.srOnly}>Search bundle companies</span>
+            <span className={styles.srOnly}>Search basket tokens</span>
             <Search size={16} />
             <input
               type="search"
               value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search 100 stocks by ticker, company, or sector…"
+              onChange={(event) => {
+                setSearch(event.target.value);
+                setVisible(48);
+              }}
+              placeholder="Search company, ticker or issuer…"
             />
           </label>
-
           <div className={styles.selectionBar}>
-            <span>{selected.length} companies selected in basket</span>
+            <span>{chosen.length} tokens selected</span>
             <button
               className={styles.textButton}
               type="button"
-              disabled={!selected.length}
+              disabled={!chosen.length}
               onClick={() => review.current?.scrollIntoView({ block: "start" })}
             >
               Review allocations <ChevronDown size={14} />
             </button>
           </div>
-
-          {/* Stock Grid */}
           <div className={styles.bundleGrid}>
-            {filteredOptions.map((asset) => {
-              const definition = catalogue.find(
-                (item) => item.ticker === asset.ticker,
+            {shown.slice(0, visible).map((asset) => {
+              const price = observedPrice(asset),
+                active = selected.includes(asset.address.toLowerCase());
+              const definition = SECTOR_DEFINITIONS.find((item) =>
+                item.stocks.includes(asset.ticker),
               );
-              if (!definition) return null;
-              const isAvailable =
-                available.includes(asset.ticker) &&
-                feed.quotes[asset.ticker]?.status === "live" &&
-                feed.quotes[asset.ticker]?.price > 0;
-              const isSelected = selected.includes(asset.ticker);
-              const price =
-                feed.quotes[asset.ticker]?.price > 0
-                  ? feed.quotes[asset.ticker].price
-                  : null;
-              const secDef = definition.sectorKey
-                ? defForSector(definition.sectorKey)
-                : null;
-              const badgeColor =
-                secDef?.color ??
-                (isHeroTicker(asset.ticker) ? "#f0b90b" : "#38bdf8");
-              const badgeText =
-                secDef?.badge ??
-                (isHeroTicker(asset.ticker)
-                  ? "HERO"
-                  : asset.sector.slice(0, 4).toUpperCase());
-
               return (
                 <button
-                  key={asset.ticker}
+                  key={asset.address}
                   type="button"
                   className={styles.bundleOption}
-                  aria-pressed={isSelected}
-                  disabled={!isAvailable}
-                  onClick={() => toggle(asset.ticker)}
+                  aria-pressed={active}
+                  onClick={() => toggle(asset)}
                 >
                   <div className={styles.bundleCardTop}>
                     <StockLogo
@@ -837,40 +755,38 @@ function BundleBuilder({
                     />
                     <span
                       className={styles.sectorPill}
-                      style={{
-                        backgroundColor: `${badgeColor}22`,
-                        color: badgeColor,
-                        border: `1px solid ${badgeColor}55`,
-                      }}
+                      style={{ color: definition?.color }}
                     >
-                      {badgeText}
+                      {definition?.badge ?? companyMetadata(asset).sector}
                     </span>
                   </div>
-                  {isSelected && (
+                  {active && (
                     <Check size={18} style={{ color: "var(--accent)" }} />
                   )}
-                  <strong>{asset.ticker}</strong>
+                  <strong>{asset.symbol}</strong>
                   <small>
-                    {isAvailable ? asset.name : "Already on island"}
+                    {companyMetadata(asset).name} · {asset.platform}
                   </small>
                   <div className={styles.bundleCardPrice}>
-                    <span>Price</span>
-                    <strong>{price !== null ? money(price) : "—"}</strong>
+                    <span>Observed price</span>
+                    <strong>{price === null ? "—" : money(price)}</strong>
                   </div>
                 </button>
               );
             })}
           </div>
-
-          {!filteredOptions.length && (
-            <p className={styles.notice}>
-              No companies match your filters. Try clearing the search or
-              choosing another sector tab.
-            </p>
+          {!shown.length && (
+            <p className={styles.notice}>No tokens match your filters.</p>
+          )}
+          {shown.length > visible && (
+            <button
+              className={styles.textButton}
+              onClick={() => setVisible((count) => count + 48)}
+            >
+              Show more ({Math.min(visible, shown.length)} of {shown.length})
+            </button>
           )}
         </section>
-
-        {/* Review Sidebar */}
         <aside ref={review} className={styles.bundleReview}>
           <div className={styles.sectionHeading}>
             <h4>Your basket</h4>
@@ -885,14 +801,12 @@ function BundleBuilder({
             </button>
           </div>
           <p className={styles.caption}>
-            {selected.length
-              ? `${selected.length} ${selected.length === 1 ? "company" : "companies"} selected. Set allocation per company.`
-              : "Pick companies or choose a sector basket above."}
+            {chosen.length
+              ? `${chosen.length} tokens selected. Set a USDT budget and review purchases individually.`
+              : "Choose a sector basket or individual issuer tokens."}
           </p>
-
-          {selected.length > 0 && (
+          {chosen.length > 0 && (
             <>
-              {/* Quick Allocation dropdown */}
               <label className={styles.field}>
                 Uniform allocation
                 <select
@@ -901,7 +815,10 @@ function BundleBuilder({
                     setAmounts((previous) => ({
                       ...previous,
                       ...Object.fromEntries(
-                        selected.map((ticker) => [ticker, event.target.value]),
+                        chosen.map((asset) => [
+                          asset.address.toLowerCase(),
+                          event.target.value,
+                        ]),
                       ),
                     }))
                   }
@@ -911,161 +828,206 @@ function BundleBuilder({
                   </option>
                   {[0.5, 1, 2, 5, 10].map((amount) => (
                     <option key={amount} value={amount}>
-                      {money(amount)} per company
+                      {money(amount)} per token
                     </option>
                   ))}
                 </select>
               </label>
-
-              {/* Even Budget Splitter */}
               <div className={styles.field}>
-                <span style={{ fontSize: "12px", color: "var(--subtle)" }}>
-                  Distribute total budget evenly
-                </span>
+                <span>Distribute total budget evenly</span>
                 <div className={styles.evenSplitBox}>
                   <input
                     type="text"
                     inputMode="decimal"
                     className={styles.evenSplitInput}
                     value={splitBudget}
-                    onChange={(e) => setSplitBudget(e.target.value)}
-                    placeholder="Total e.g. 1"
-                    aria-label="Total budget to distribute evenly"
+                    onChange={(event) => setSplitBudget(event.target.value)}
+                    aria-label="Total USDT budget to distribute"
                   />
                   <button
                     type="button"
                     className={styles.evenSplitBtn}
-                    onClick={handleSplitBudget}
+                    onClick={() => {
+                      const total = Number(splitBudget);
+                      if (
+                        !Number.isFinite(total) ||
+                        total <= 0 ||
+                        !chosen.length
+                      ) {
+                        setMessage("Enter a positive USDT budget.");
+                        return;
+                      }
+                      const amount = (
+                        Math.floor((total * 1e6) / chosen.length) / 1e6
+                      )
+                        .toFixed(6)
+                        .replace(/0+$/, "")
+                        .replace(/\.$/, "");
+                      if (Number(amount) <= 0) {
+                        setMessage(
+                          "Increase the budget for the selected number of tokens.",
+                        );
+                        return;
+                      }
+                      setAmounts((previous) => ({
+                        ...previous,
+                        ...Object.fromEntries(
+                          chosen.map((asset) => [
+                            asset.address.toLowerCase(),
+                            amount,
+                          ]),
+                        ),
+                      }));
+                      setMessage(
+                        "Budget distributed. Each purchase still requires a fresh route quote.",
+                      );
+                    }}
                   >
                     Distribute
                   </button>
                 </div>
               </div>
-
-              {/* Selected List */}
               <div className={styles.bundleAmounts}>
-                {selected.map((ticker) => {
+                {chosen.map((asset) => {
+                  const address = asset.address.toLowerCase(),
+                    amount = amounts[address] ?? "",
+                    valid =
+                      /^(?:\d+\.?\d*|\.\d+)$/.test(amount) &&
+                      Number(amount) > 0 &&
+                      Number.isFinite(Number(amount));
+                  const holding = walletHolding(balance, asset),
+                    placed = props.city.buildings.some(
+                      (building) =>
+                        building.tokenAddress?.toLowerCase() === address,
+                    );
                   return (
-                    <div className={styles.field} key={ticker}>
+                    <div className={styles.field} key={address}>
                       <span className={styles.bundleAmountLabel}>
                         <label
-                          htmlFor={`bundle-${ticker}`}
+                          htmlFor={`basket-${address}`}
                           style={{
                             display: "flex",
                             alignItems: "center",
-                            gap: "6px",
+                            gap: 6,
                           }}
                         >
-                          <StockLogo ticker={ticker} size={18} shape="circle" />
-                          <strong>{ticker}</strong>
-                          <span
-                            style={{ fontSize: "11px", color: "var(--subtle)" }}
-                          >
-                            · USD
-                          </span>
+                          <StockLogo
+                            ticker={asset.ticker}
+                            size={18}
+                            shape="circle"
+                          />
+                          <strong>{asset.symbol}</strong>
+                          <span className={styles.caption}>· USDT</span>
                         </label>
                         <button
                           type="button"
                           className={styles.iconButton}
-                          aria-label={`Remove ${ticker} from bundle`}
-                          onClick={() => toggle(ticker)}
+                          aria-label={`Remove ${asset.symbol} from basket`}
+                          onClick={() => toggle(asset)}
                         >
                           <Trash2 size={14} />
                         </button>
                       </span>
+                      <small>
+                        {asset.platform} · {asset.address.slice(0, 8)}…
+                        {asset.address.slice(-6)}
+                      </small>
                       <input
-                        id={`bundle-${ticker}`}
+                        id={`basket-${address}`}
                         type="text"
                         inputMode="decimal"
-                        value={amounts[ticker] ?? ""}
-                        aria-invalid={Boolean(
-                          touched[ticker] && validation.errors[ticker],
-                        )}
-                        aria-describedby={`bundle-${ticker}-hint`}
-                        onBlur={() =>
-                          setTouched((previous) => ({
-                            ...previous,
-                            [ticker]: true,
-                          }))
-                        }
+                        value={amount}
+                        aria-invalid={!valid}
                         onChange={(event) => {
                           setAmounts((previous) => ({
                             ...previous,
-                            [ticker]: event.target.value,
+                            [address]: event.target.value,
                           }));
                           setMessage("");
                         }}
                       />
-                      <small
-                        id={`bundle-${ticker}-hint`}
-                        className={
-                          touched[ticker] && validation.errors[ticker]
-                            ? styles.loss
-                            : ""
-                        }
-                      >
-                        {touched[ticker] && validation.errors[ticker]
-                          ? validation.errors[ticker]
-                          : Number.isFinite(Number(amounts[ticker])) &&
-                              feed.quotes[ticker]?.price > 0
-                            ? `≈ ${(Number(amounts[ticker] || 0) / (feed.quotes[ticker]?.price ?? 0)).toLocaleString(undefined, { maximumFractionDigits: 4 })} units @ ${money(feed.quotes[ticker]?.price ?? 0)}`
-                            : "Enter a valid USD amount"}
+                      <small>
+                        {!valid
+                          ? "Enter a positive USDT amount"
+                          : "Final token quantity comes from your reviewed live quote."}
                       </small>
+                      <button
+                        className={styles.primary}
+                        type="button"
+                        disabled={
+                          !valid ||
+                          pending ||
+                          Boolean(
+                            balance &&
+                            Number(amount) > Number(balance.usdt.formatted),
+                          )
+                        }
+                        onClick={() => props.onTrade(asset, "buy", amount)}
+                      >
+                        Review buy {asset.symbol} <ArrowUpRight size={14} />
+                      </button>
+                      {holding &&
+                        BigInt(holding.raw) > 0n &&
+                        catalogue.some(
+                          (definition) => definition.ticker === asset.ticker,
+                        ) && (
+                          <button
+                            className={styles.secondary}
+                            type="button"
+                            disabled={placed}
+                            onClick={() => props.onPlaceAsset(asset)}
+                          >
+                            {placed ? "In city" : "Place held token"}
+                          </button>
+                        )}
                     </div>
                   );
                 })}
               </div>
             </>
           )}
-
           <div className={styles.bundleTotal}>
-            <span>Basket total</span>
-            <strong>{money(validation.total)}</strong>
+            <span>Planned basket budget</span>
+            <strong>{money(total)}</strong>
           </div>
           <p className={styles.caption}>
-            {money(Math.max(0, city.cash - validation.total))} city cash after
-            placement.
+            BNB transaction fees are additional. Your wallet balance changes
+            only after a confirmed trade.
           </p>
-
-          {selected.some(
-            (ticker) => feed.quotes[ticker]?.status !== "live",
-          ) && (
+          {budget !== null && total > budget && (
             <p className={styles.warning}>
-              Some token prices are stale or unavailable. Refresh market data
-              before continuing.
+              Your planned basket exceeds the wallet's USDT balance.
             </p>
           )}
-
-          <button
-            className={styles.primary}
-            type="submit"
-            disabled={!validation.valid || !pricesAvailable}
-          >
-            {selected.length === 1
-              ? `Place ${selected[0]} on island · ${money(validation.total)}`
-              : `Place basket on island (${selected.length} companies) · ${money(validation.total)}`}{" "}
-            <ArrowUpRight size={16} />
-          </button>
-
-          {validation.error && (
-            <p className={styles.caption}>{validation.error}</p>
+          {pending && (
+            <p className={styles.warning}>
+              Resolve the pending order in City Hall before another purchase.
+            </p>
+          )}
+          {!account && (
+            <button className={styles.primary} onClick={props.onConnectWallet}>
+              <Wallet size={16} /> Connect wallet
+            </button>
+          )}
+          {account && (
+            <button className={styles.secondary} onClick={props.onFundWallet}>
+              <Wallet size={16} /> Fund wallet
+            </button>
           )}
           {message && (
-            <p className={styles.warning} role="alert">
+            <p className={styles.warning} role="status">
               {message}
             </p>
           )}
-          <p className={styles.caption}>
-            Allocations require fresh executable quotes and wallet confirmation
-            before they become actual holdings.
-          </p>
         </aside>
-      </form>
-
+      </div>
       <ol className={styles.bundleSteps}>
-        <li>Pick a sector basket or choose individual companies.</li>
-        <li>Place each building draft on the island.</li>
-        <li>Confirm all positions in 1 signature on BSC Testnet.</li>
+        <li>Pick a basket or individual issuer tokens.</li>
+        <li>Review each live quote and confirm the purchase in your wallet.</li>
+        <li>
+          Place buildings for tokens you hold. Selling returns USDT to your
+          wallet.
+        </li>
       </ol>
     </>
   );

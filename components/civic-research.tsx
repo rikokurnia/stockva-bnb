@@ -8,7 +8,14 @@ import {
   Layers,
   RefreshCw,
 } from "lucide-react";
-import { assets, catalogue, defFor, money, pct, priceOf } from "../lib/city";
+import { catalogue, money, pct } from "../lib/city";
+import type { MainnetAsset } from "../lib/mainnet";
+import {
+  assetResearchUrl,
+  companyMetadata,
+  observedPrice,
+  walletHolding,
+} from "../lib/mainnet-research";
 import { companyProfiles, type CompanyNews } from "../lib/company-intel";
 import {
   movingAverage,
@@ -34,6 +41,8 @@ function useResource<T>(
   const [loading, setLoading] = useState(Boolean(url));
   const [error, setError] = useState("");
   useEffect(() => {
+    setData(null);
+    setError("");
     if (!url) {
       setLoading(false);
       return;
@@ -82,15 +91,39 @@ function useResource<T>(
   return { data, loading, error };
 }
 type Props = CivicProps & {
-  ticker: string;
+  asset: MainnetAsset;
   revision: number;
   onAddToBundle: () => void;
   bundleAvailable: boolean;
 };
 export default function CivicResearch(props: Props) {
-  const { ticker, prices, feed, mode, revision } = props;
-  const asset = assets.find((item) => item.ticker === ticker)!;
-  const quote = feed.quotes[ticker];
+  const { asset, mode, revision } = props;
+  const ticker = asset.ticker;
+  const metadata = companyMetadata(asset);
+  const price = observedPrice(asset);
+  const quote = {
+    price: price ?? 0,
+    status:
+      price === null
+        ? "unavailable"
+        : asset.priceUpdatedAt &&
+            Date.now() - Date.parse(asset.priceUpdatedAt) > 120000
+          ? "stale"
+          : "live",
+    source: `Binance Web3 · ${asset.platform} · BSC 56`,
+    fetchedAt: asset.priceUpdatedAt,
+    contract: asset.address,
+    tokenName: asset.symbol,
+    changeAvailable: false,
+    change: 0,
+  };
+  const holding = walletHolding(props.balance, asset);
+  const pending = props.receipts.some(
+    (receipt) =>
+      receipt.status === "PENDING" &&
+      receipt.account.toLowerCase() ===
+        (props.walletAddress ?? props.balance?.account)?.toLowerCase(),
+  );
   const inspection = mode === "data";
   const [tab, setTab] = useState("technical");
   const [localRevision, setLocalRevision] = useState(0);
@@ -99,7 +132,7 @@ export default function CivicResearch(props: Props) {
   );
   const update = revision + localRevision;
   const history = useResource<HistoryFeed>(
-    `/api/history?ticker=${encodeURIComponent(ticker)}${quote?.contract ? `&contract=${encodeURIComponent(quote.contract)}` : ""}&range=1mo&interval=15m`,
+    `${assetResearchUrl("/api/history", asset)}&range=1mo&interval=15m`,
     60000,
     update,
   );
@@ -116,9 +149,7 @@ export default function CivicResearch(props: Props) {
     update,
   );
   const passport = useResource<Passport>(
-    inspection
-      ? `/api/passport?ticker=${encodeURIComponent(ticker)}${quote?.contract ? `&contract=${encodeURIComponent(quote.contract)}` : ""}`
-      : null,
+    inspection ? assetResearchUrl("/api/passport", asset) : null,
     300000,
     update,
   );
@@ -128,10 +159,7 @@ export default function CivicResearch(props: Props) {
   const underlyingCloses = history.data?.simulated
     ? []
     : observedSeries(history.data?.points ?? [], "benchmark");
-  const closes =
-    indicatorSource === "token" && tokenCloses.length
-      ? tokenCloses
-      : underlyingCloses;
+  const closes = indicatorSource === "token" ? tokenCloses : underlyingCloses;
   const indicators = {
     ma10: movingAverage(closes, 10).at(-1)?.value,
     sma20: movingAverage(closes, 20).at(-1)?.value,
@@ -139,21 +167,9 @@ export default function CivicResearch(props: Props) {
     rsi: relativeStrength(closes),
   };
   const profile = companyProfiles[ticker];
-  const held =
-    props.city.buildings
-      .filter(
-        (building) =>
-          !building.locked && defFor(building.kind).ticker === ticker,
-      )
-      .reduce((sum, building) => sum + building.quantity, 0) +
-    (props.city.paper ?? [])
-      .filter((holding) => holding.ticker === ticker)
-      .reduce((sum, holding) => sum + holding.quantity, 0);
+  const held = holding ? Number(holding.formatted) : 0;
   const quoteAvailable =
-    !!quote &&
-    quote.status !== "unavailable" &&
-    quote.status !== "fallback" &&
-    quote.price > 0;
+    !!quote && quote.status !== "unavailable" && quote.price > 0;
   const quoteLabel = !quoteAvailable
     ? "BSC token price unavailable"
     : quote.status === "stale"
@@ -168,7 +184,7 @@ export default function CivicResearch(props: Props) {
           <div>
             <h3>{asset.name}</h3>
             <p>
-              {ticker} · {asset.sector}
+              {asset.symbol} · {asset.platform} · {metadata.sector}
               {research.data?.exchange ? ` · ${research.data.exchange}` : ""}
             </p>
           </div>
@@ -186,7 +202,9 @@ export default function CivicResearch(props: Props) {
           {quote?.source ?? "Provider unavailable"} · fetched{" "}
           {stamp(quote?.fetchedAt)}
         </span>
-        <span>Quotes refresh about every 60s</span>
+        <span>
+          Observation times may be unavailable; trades use fresh quotes
+        </span>
       </div>
       {!inspection && (
         <>
@@ -215,7 +233,7 @@ export default function CivicResearch(props: Props) {
               ) : history.data ? (
                 <ObservedChart
                   history={history.data}
-                  livePrice={prices[ticker]}
+                  livePrice={price ?? undefined}
                   onSourceChange={setIndicatorSource}
                 />
               ) : (
@@ -235,7 +253,7 @@ export default function CivicResearch(props: Props) {
                   }
                 />
                 <Indicator
-                  label="SMA 50 · hourly closes"
+                  label="SMA 50 · observed closes"
                   value={
                     indicators.sma50 == null ? "—" : money(indicators.sma50)
                   }
@@ -249,12 +267,9 @@ export default function CivicResearch(props: Props) {
               </div>
               <p className={styles.caption}>
                 Indicators use{" "}
-                {indicatorSource === "token" && tokenCloses.length
-                  ? "token"
-                  : "underlying"}{" "}
-                observed hourly closes. A dash means there are too few
-                observations. These are measurements, not buy or sell
-                recommendations.
+                {indicatorSource === "token" ? "token" : "underlying"} observed
+                observed closes. A dash means there are too few observations.
+                These are measurements, not buy or sell recommendations.
               </p>
             </>
           )}
@@ -264,7 +279,7 @@ export default function CivicResearch(props: Props) {
                 <h4>Business & financials</h4>
                 <p>
                   {profile?.business ??
-                    `${asset.name} belongs to the ${asset.sector} research category. The reported financials below come from the underlying company, not the token issuer.`}
+                    `${asset.name} belongs to the ${metadata.sector} research category. The reported financials below come from the underlying company, not the token issuer.`}
                 </p>
                 {profile && (
                   <p className={styles.caption}>
@@ -432,28 +447,50 @@ export default function CivicResearch(props: Props) {
             </>
           )}
           <div className={styles.actions}>
-            {props.bundleAvailable && (
+            <button
+              className={styles.primary}
+              type="button"
+              disabled={pending}
+              onClick={() => props.onTrade(asset, "buy")}
+            >
+              Buy {asset.symbol} <ArrowUpRight size={16} />
+            </button>
+            {holding && BigInt(holding.raw) > 0n && (
               <>
-                <button
-                  className={styles.primary}
-                  type="button"
-                  onClick={() => {
-                    const def = catalogue.find((d) => d.ticker === ticker);
-                    if (def) {
-                      props.onBuy(def.kind, 1);
-                    }
-                  }}
-                >
-                  Buy & Place {ticker} <ArrowUpRight size={16} />
-                </button>
                 <button
                   className={styles.secondary}
                   type="button"
-                  onClick={props.onAddToBundle}
+                  disabled={pending}
+                  onClick={() => props.onTrade(asset, "sell")}
                 >
-                  <Layers size={16} /> Add to basket
+                  Sell {asset.symbol}
                 </button>
+                {catalogue.some(
+                  (definition) => definition.ticker === ticker,
+                ) && (
+                  <button
+                    className={styles.secondary}
+                    type="button"
+                    disabled={props.city.buildings.some(
+                      (building) =>
+                        building.tokenAddress?.toLowerCase() ===
+                        asset.address.toLowerCase(),
+                    )}
+                    onClick={() => props.onPlaceAsset(asset)}
+                  >
+                    Place held token
+                  </button>
+                )}
               </>
+            )}
+            {props.bundleAvailable && (
+              <button
+                className={styles.secondary}
+                type="button"
+                onClick={props.onAddToBundle}
+              >
+                <Layers size={16} /> Add to basket
+              </button>
             )}
             <button
               className={styles.textButton}
@@ -471,27 +508,22 @@ export default function CivicResearch(props: Props) {
           </div>
           <p className={styles.caption}>
             {held > 0
-              ? `Your city holds ${held.toLocaleString(undefined, { maximumFractionDigits: 4 })} ${ticker} units. Manage holdings in City Hall. `
+              ? `Your wallet holds ${holding!.formatted} ${asset.symbol}. `
               : ""}
-            Buy and place directly on the island, or add to a sector basket to
-            confirm together on BNB Smart Chain.
+            Review the live quote and wallet prompts before trading. Buildings
+            represent confirmed wallet holdings.
           </p>
         </>
       )}
       {inspection && (
         <TokenInspection
-          ticker={ticker}
-          contract={quote?.contract}
+          asset={asset}
+          contract={asset.address}
           passport={passport.data}
           loading={passport.loading}
           history={history.data}
           historyLoading={history.loading}
-          quoteIsToken={Boolean(quote?.tokenName || quote?.pair)}
-          tokenPrice={
-            quote?.status === "live" && (quote.tokenName || quote.pair)
-              ? quote.price
-              : undefined
-          }
+          tokenPrice={price ?? undefined}
           tokenFetchedAt={quote?.fetchedAt}
           onRetry={() => setLocalRevision((value) => value + 1)}
         />
@@ -513,7 +545,7 @@ export default function CivicResearch(props: Props) {
   );
 }
 function TokenInspection({
-  ticker,
+  asset,
   contract,
   passport,
   loading,
@@ -523,27 +555,24 @@ function TokenInspection({
   tokenFetchedAt,
   onRetry,
 }: {
-  ticker: string;
+  asset: MainnetAsset;
   contract?: string;
   passport: Passport | null;
   loading: boolean;
   history: HistoryFeed | null;
   historyLoading: boolean;
-  quoteIsToken: boolean;
   tokenPrice?: number;
   tokenFetchedAt?: string | null;
   onRetry: () => void;
 }) {
+  const ticker = asset.ticker;
+  const metadata = companyMetadata(asset);
   const [network, setNetwork] = useState(0);
   const [copied, setCopied] = useState(false);
   const [copyError, setCopyError] = useState("");
   const rwaPassport = useResource<
     { available: boolean; fetchedAt?: string } & Partial<RwaCompany>
-  >(
-    `/api/rwa/passport?ticker=${encodeURIComponent(ticker)}${contract ? `&contract=${encodeURIComponent(contract)}` : ""}`,
-    300000,
-    0,
-  );
+  >(assetResearchUrl("/api/rwa/passport", asset), 300000, 0);
   const deployment = passport?.deployments[network];
   const reserve = passport?.reserve;
   const staleReserve = reserve
@@ -553,7 +582,6 @@ function TokenInspection({
     setCopied(false);
     setCopyError("");
   }, [deployment?.address]);
-  const asset = assets.find((item) => item.ticker === ticker)!;
   return (
     <>
       <div className={styles.inspectionStats}>
@@ -561,7 +589,7 @@ function TokenInspection({
           <strong>Issuer identity</strong>
           <span className={passport?.symbol ? styles.gain : ""}>
             {passport?.symbol
-              ? "Matched to underlying"
+              ? "Selected contract verified"
               : loading
                 ? "Checking…"
                 : "Not confirmed"}
@@ -600,8 +628,8 @@ function TokenInspection({
               <div className={styles.assetIdentity}>
                 <StockLogo
                   ticker={ticker}
-                  name={passport?.name ?? `${ticker}x`}
-                  type="rwa"
+                  name={passport?.name ?? asset.name}
+                  type="stock"
                   size={40}
                 />
                 <div>
@@ -618,20 +646,14 @@ function TokenInspection({
                   {asset.name} · {ticker}
                 </Fact>
                 <Fact label="Issuer">
-                  {passport?.symbol
-                    ? "Backed Assets (JE) Limited"
-                    : "Not confirmed"}
+                  {passport?.platform ?? asset.platform}
                 </Fact>
                 <Fact label="ISIN">{passport?.isin ?? "Unavailable"}</Fact>
                 <Fact label="Underlying exchange">
                   {passport?.exchange ?? history?.exchange ?? "Unavailable"}
                 </Fact>
                 <Fact label="Issuer trading status">
-                  {passport?.symbol
-                    ? passport.halted
-                      ? "Halted by issuer"
-                      : (passport.period ?? "No period returned")
-                    : "Unconfirmed"}
+                  {asset.marketStatus ?? "Unknown"}
                 </Fact>
               </dl>
               <p className={styles.caption}>
@@ -924,24 +946,33 @@ function TokenInspection({
         <h4>Rights & risks</h4>
         <p>
           {passport?.symbol
-            ? "A tracker certificate gives economic exposure, not direct stock ownership or shareholder voting rights. Redemption eligibility, geographic restrictions and fees follow the product prospectus. Issuer, custody, liquidity and price-deviation risks remain."
+            ? "Holding an issuer token does not automatically provide direct stock ownership or shareholder voting rights. Redemption eligibility, geographic restrictions and fees follow the selected issuer's product terms. Issuer, custody, liquidity and price-deviation risks remain."
             : "Token rights are unconfirmed until issuer metadata is available. Check the official product terms before relying on this listing."}
         </p>
         <div className={styles.sourceLinks}>
-          <a
-            href="https://assets.backed.fi/legal-documentation"
-            target="_blank"
-            rel="noreferrer"
-          >
-            Prospectus & product terms <ExternalLink size={14} />
-          </a>
-          <a
-            href="https://docs.xstocks.fi/docs/product-legal-overview"
-            target="_blank"
-            rel="noreferrer"
-          >
-            Issuer legal overview <ExternalLink size={14} />
-          </a>
+          {asset.platform === "xstocks" && (
+            <>
+              <a
+                href="https://assets.backed.fi/legal-documentation"
+                target="_blank"
+                rel="noreferrer"
+              >
+                Prospectus & product terms <ExternalLink size={14} />
+              </a>
+              <a
+                href="https://docs.xstocks.fi/docs/product-legal-overview"
+                target="_blank"
+                rel="noreferrer"
+              >
+                Issuer legal overview <ExternalLink size={14} />
+              </a>
+            </>
+          )}
+          {rwaPassport.data?.website && (
+            <a href={rwaPassport.data.website} target="_blank" rel="noreferrer">
+              Selected issuer / product website <ExternalLink size={14} />
+            </a>
+          )}
         </div>
       </section>
       {passport?.error && <p className={styles.warning}>{passport.error}</p>}

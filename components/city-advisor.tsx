@@ -1,16 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import {
-  defFor,
-  hasRoad,
-  priceOf,
-  returnOf,
-  valueOf,
-  wholeMoney,
-} from "../lib/city";
+import { defFor, hasRoad, wholeMoney } from "../lib/city";
 import type { CityState, PriceMap } from "../lib/city";
-import { getOnchainPositions, type OnchainPosition } from "../lib/contracts";
+import type { MainnetReceipt, WalletBalances } from "../lib/mainnet";
 import styles from "./city-advisor.module.css";
 
 type Message = { role: "guide" | "user"; text: string };
@@ -19,32 +12,85 @@ type Props = {
   city: CityState;
   prices: PriceMap;
   walletAddress?: `0x${string}` | null;
+  balance?: WalletBalances | null;
+  receipts?: MainnetReceipt[];
 };
 
-export default function CityAdvisor({ city, prices, walletAddress }: Props) {
+export default function CityAdvisor({
+  city,
+  walletAddress,
+  balance = null,
+  receipts = [],
+}: Props) {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
   const [thinking, setThinking] = useState(false);
-  const [onchain, setOnchain] = useState<OnchainPosition[]>([]);
   const toggle = useRef<HTMLButtonElement>(null);
   const input = useRef<HTMLInputElement>(null);
   const log = useRef<HTMLDivElement>(null);
-  const holdings = city.buildings.filter(
-    (b) => defFor(b.kind).ticker && !b.locked,
+  const request = useRef<AbortController | null>(null);
+  const generation = useRef(0);
+  const mounted = useRef(false);
+  const accountKey = walletAddress?.toLowerCase() ?? "";
+  const currentAccount = useRef(accountKey);
+  currentAccount.current = accountKey;
+  const wallet =
+    balance?.chainId === 56 && balance.account.toLowerCase() === accountKey
+      ? balance
+      : null;
+  const holdings = wallet?.holdings ?? [];
+  const valuations = holdings.map((holding) => {
+    const observed = holding.asset.priceUsd;
+    const price = observed === null ? null : Number(observed);
+    const units = Number(holding.formatted);
+    return {
+      holding,
+      units: Number.isFinite(units) ? units : undefined,
+      price:
+        price !== null && Number.isFinite(price) && price > 0
+          ? price
+          : undefined,
+      value:
+        price !== null &&
+        Number.isFinite(price) &&
+        price > 0 &&
+        Number.isFinite(units)
+          ? units * price
+          : undefined,
+    };
+  });
+  const allValued = valuations.every((item) => item.value !== undefined);
+  const total = valuations.reduce((sum, item) => sum + (item.value ?? 0), 0);
+  const companyBuildings = city.buildings.filter(
+    (building) => defFor(building.kind).ticker && !building.locked,
   );
   const disconnected = city.buildings.filter(
-    (b) => !hasRoad(b, city.roads),
+    (building) => !hasRoad(building, city.roads),
   ).length;
-  const total = holdings.reduce((sum, b) => sum + valueOf(b, prices), 0);
   const briefing = !city.roads.length
     ? "A fresh start. Lay your first road."
     : disconnected
       ? `${disconnected} ${disconnected === 1 ? "building needs" : "buildings need"} road access.`
-      : !holdings.length
+      : !companyBuildings.length
         ? "Roads are ready. Bring your first company home."
-        : `${holdings.length} company ${holdings.length === 1 ? "building" : "buildings"} · ${wholeMoney(total)} in stock value.`;
+        : `${companyBuildings.length} company ${companyBuildings.length === 1 ? "building" : "buildings"} · ${wallet ? (allValued ? wholeMoney(total) + " in stock value." : "Some token prices are unavailable.") : "Connect to see your stock value."}`;
 
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      generation.current += 1;
+      request.current?.abort();
+    };
+  }, []);
+  useEffect(() => {
+    generation.current += 1;
+    request.current?.abort();
+    setMessages([]);
+    setDraft("");
+    setThinking(false);
+  }, [accountKey]);
   useEffect(() => {
     if (open) input.current?.focus({ preventScroll: true });
   }, [open]);
@@ -52,52 +98,34 @@ export default function CityAdvisor({ city, prices, walletAddress }: Props) {
     if (log.current) log.current.scrollTop = log.current.scrollHeight;
   }, [messages, open, thinking]);
 
-  // Keep the advisor's view of on-chain vault positions fresh.
-  useEffect(() => {
-    if (!open || !walletAddress) {
-      if (!walletAddress) setOnchain([]);
-      return;
-    }
-    let cancelled = false;
-    getOnchainPositions(walletAddress)
-      .then((positions) => {
-        if (!cancelled) setOnchain(positions);
-      })
-      .catch(() => {
-        if (!cancelled) setOnchain([]);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [open, walletAddress]);
-
   function localReply(question: string) {
     const q = question.toLowerCase();
     if (/buy|sell|rotate|trade|rebalance|defensive|transaction/.test(q))
-      return "I can help you explore your city here. Trading commands aren’t connected in this preview. Select a company building to review its position and available actions; this chat won’t move your funds.";
+      return "Open the Stock Exchange to review a real mainnet buy or sell. Each trade needs a fresh quote, simulation, and your wallet signature. Cokoo helps you understand your portfolio; this chat does not move funds.";
     if (/allocation|portfolio|stock|holding/.test(q)) {
-      if (!holdings.length && !onchain.filter((p) => p.active).length)
-        return `Your portfolio is still empty, with ${wholeMoney(city.cash)} in available funds. Open Build to choose your first company, then place it beside a road. Portfolio will reveal each building’s return and level.`;
-      const groups = new Map<string, number>();
-      holdings.forEach((b) => {
-        const name = defFor(b.kind).name;
-        groups.set(name, (groups.get(name) ?? 0) + valueOf(b, prices));
-      });
-      return `${wholeMoney(total)} in tokenized stock positions. ${Array.from(
-        groups,
-      )
-        .sort((a, b) => b[1] - a[1])
+      if (!walletAddress)
+        return "Connect your wallet to see your BNB Smart Chain token holdings and USDT balance. Your island layout is saved separately from your funds.";
+      if (!wallet)
+        return "Your wallet balances are unavailable right now. Refresh your wallet before reviewing allocation; I won’t estimate missing holdings or prices.";
+      if (!holdings.length)
+        return `Your wallet has no discovered stock tokens and ${wallet.usdt.formatted} USDT. Open the Stock Exchange to explore issuer tokens and review a buy, then place the company beside a road.`;
+      if (!allValued)
+        return `Your wallet holds ${holdings.length} stock tokens. Some token prices are unavailable, so a complete portfolio value and allocation cannot be calculated. Review your quantities and token contracts in Portfolio.`;
+      return `${wholeMoney(total)} in observed stock value. ${valuations
+        .slice()
+        .sort((a, b) => (b.value ?? 0) - (a.value ?? 0))
+        .slice(0, 8)
         .map(
-          ([name, value]) =>
-            `${name}: ${total > 0 ? ((value / total) * 100).toFixed(1) : "0"}%`,
+          ({ holding, value }) =>
+            `${holding.asset.symbol}: ${total > 0 ? (((value ?? 0) / total) * 100).toFixed(1) : "0"}%`,
         )
         .join(
           " · ",
-        )}. Open Portfolio to see returns and building levels across your island.`;
+        )}. Market observations are indicative; a fresh trade quote determines execution.`;
     }
     if (/expand|next|build|road|review|city/.test(q))
-      return `${briefing} You have ${wholeMoney(city.cash)} in available funds. ${!city.roads.length ? "Open Build and choose Roads, then draw a small connected route on the island." : disconnected ? "Extend a road to the disconnected buildings before adding a new block." : "Open Build to choose a company and place it alongside your road network. Select a finished building to explore its position."}`;
-    return "Try asking for a city review, your portfolio allocation, or what to build next. This preview guide uses your current city and available market prices (including labeled fallbacks).";
+      return `${briefing} ${!city.roads.length ? "Open Build and choose Roads, then draw a connected route on the island." : disconnected ? "Extend a road to disconnected buildings before adding a new block." : "Open the Stock Exchange to review real token holdings. Place a company you own beside a road, or add a free city service."} ${wallet ? `Your wallet has ${wallet.usdt.formatted} USDT.` : "Connect your wallet to load your balances."}`;
+    return "Try asking for a city review, your portfolio allocation, or what to build next. I use your current island layout and mainnet wallet snapshot, and leave missing prices unknown.";
   }
 
   async function send(text: string) {
@@ -107,58 +135,43 @@ export default function CityAdvisor({ city, prices, walletAddress }: Props) {
     setMessages(history);
     setDraft("");
     input.current?.focus({ preventScroll: true });
-
-    // Realtime snapshot: unlocked buildings + position-only holdings.
-    const paper = city.paper ?? [];
+    const confirmed = receipts.filter(
+      (receipt) =>
+        receipt.account.toLowerCase() === accountKey &&
+        receipt.asset.chainId === 56 &&
+        receipt.status === "FILLED" &&
+        receipt.txHash,
+    );
+    const cash = wallet ? Number(wallet.usdt.formatted) : undefined;
     const snapshot = {
-      cash: city.cash,
-      totalValue:
-        total +
-        paper.reduce((s, p) => s + p.quantity * priceOf(p.ticker, prices), 0),
+      cash: cash !== undefined && Number.isFinite(cash) ? cash : undefined,
+      totalValue: wallet && allValued ? total : undefined,
       walletConnected: !!walletAddress,
-      onchainCount: onchain.filter((p) => p.active).length,
-      holdings: [
-        ...holdings.map((b) => {
-          const ticker = defFor(b.kind).ticker!;
-          return {
-            ticker,
-            name: defFor(b.kind).name,
-            units: b.quantity,
-            entry: b.entry,
-            price: priceOf(ticker, prices),
-            value: valueOf(b, prices),
-            returnPct: returnOf(b, prices) * 100,
-            onchain: false,
-            active: true,
-          };
-        }),
-        ...paper.map((p) => ({
-          ticker: p.ticker,
-          units: p.quantity,
-          entry: p.entry,
-          price: priceOf(p.ticker, prices),
-          value: p.quantity * priceOf(p.ticker, prices),
-          returnPct:
-            p.entry > 0
-              ? ((priceOf(p.ticker, prices) - p.entry) / p.entry) * 100
-              : 0,
-          onchain: false,
+      onchainCount: wallet ? holdings.length : undefined,
+      holdings: valuations
+        .slice(0, 20)
+        .map(({ holding, units, price, value }) => ({
+          ticker: holding.asset.ticker,
+          name: `${holding.asset.name} (${holding.asset.symbol})`,
+          units,
+          price,
+          value,
+          onchain: true,
           active: true,
         })),
-        ...onchain.map((p) => ({
-          ticker: p.ticker,
-          units: Number(p.quantity) / 1e18,
-          entry: Number(p.entryPrice) / 1e18,
-          price: undefined,
-          value: undefined,
-          returnPct: undefined,
-          tier: p.buildingTier,
-          onchain: true,
-          active: p.active,
-        })),
-      ].slice(0, 20),
+      marketNote: `BSC mainnet wallet snapshot ${wallet?.fetchedAt ?? "unavailable"}; ${holdings.length} tokens, ${confirmed.length} confirmed app fills. Observed token prices; execution requires a fresh quote. Cost basis unknown.`,
     };
 
+    request.current?.abort();
+    const controller = new AbortController();
+    request.current = controller;
+    const requestGeneration = ++generation.current;
+    const sentAccount = accountKey;
+    const timeout = setTimeout(() => controller.abort(), 55000);
+    const isCurrent = () =>
+      mounted.current &&
+      generation.current === requestGeneration &&
+      currentAccount.current === sentAccount;
     setThinking(true);
     try {
       const res = await fetch("/api/advisor", {
@@ -169,24 +182,29 @@ export default function CityAdvisor({ city, prices, walletAddress }: Props) {
           history: history.slice(-6),
           snapshot,
         }),
-        signal: AbortSignal.timeout(55000),
+        signal: controller.signal,
       });
       if (!res.ok) throw new Error(`advisor ${res.status}`);
       const data = (await res.json()) as { reply?: string };
-      if (!data.reply) throw new Error("empty reply");
-      setMessages((previous) => [
-        ...previous,
-        { role: "guide", text: data.reply as string },
-      ]);
+      if (typeof data.reply !== "string" || !data.reply.trim())
+        throw new Error("empty reply");
+      if (isCurrent())
+        setMessages((previous) => [
+          ...previous,
+          { role: "guide", text: data.reply as string },
+        ]);
     } catch {
-      // Offline fallback: local rule-based insights so chat always answers.
-      setMessages((previous) => [
-        ...previous,
-        { role: "guide", text: localReply(question) },
-      ]);
+      if (isCurrent())
+        setMessages((previous) => [
+          ...previous,
+          { role: "guide", text: localReply(question) },
+        ]);
     } finally {
-      setThinking(false);
-      input.current?.focus({ preventScroll: true });
+      clearTimeout(timeout);
+      if (isCurrent()) {
+        setThinking(false);
+        input.current?.focus({ preventScroll: true });
+      }
     }
   }
 

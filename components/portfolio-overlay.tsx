@@ -109,8 +109,14 @@ export default function PortfolioOverlay({
         const b = byId.get(p.id)!,
           def = defFor(b.kind),
           gain = simulationReturns?.[b.id] ?? returnOf(b, prices),
+          gainAvailable =
+            simulationReturns?.[b.id] !== undefined ||
+            (!b.locked && b.entry > 0 && Number(prices[def.ticker!]) > 0),
           currentTier = tier(gain, thresholds),
-          level = currentTier === "minus" ? 0 : portfolioLevel(currentTier),
+          level =
+            !gainAvailable || currentTier === "minus"
+              ? 0
+              : portfolioLevel(currentTier),
           status = portfolioStatus(gain),
           isSelected = selected === b.id;
         return (
@@ -119,7 +125,7 @@ export default function PortfolioOverlay({
             key={b.id}
             className={`${styles.plaque} ${styles[status]} ${isSelected ? styles.selectedPlaque : ""} ${b.locked ? styles.lockedPlaque : ""}`}
             style={{ left: p.left, top: p.top }}
-            aria-label={`${def.name} (${def.ticker}), ${portfolioPercent(gain)} ${simulationReturns !== null ? "projected" : "unrealized"} return, ${tierName(currentTier)}${b.locked ? ", locked unpaid" : ""}`}
+            aria-label={`${def.name} (${def.ticker}), ${gainAvailable ? `${portfolioPercent(gain)} ${simulationReturns !== null ? "projected" : "unrealized"} return, ${tierName(currentTier)}` : "return unavailable"}${b.locked ? ", wallet holding unavailable" : ""}`}
             onPointerDown={(e) => e.stopPropagation()}
             onClick={(e) => {
               e.stopPropagation();
@@ -146,8 +152,8 @@ export default function PortfolioOverlay({
               {b.locked && (
                 <span
                   className={styles.lockedBadge}
-                  title="Locked unpaid building"
-                  aria-label="Locked unpaid"
+                  title="Wallet holding unavailable"
+                  aria-label="Wallet holding unavailable"
                 >
                   🔒
                 </span>
@@ -165,9 +171,15 @@ export default function PortfolioOverlay({
               >
                 {status === "gain" && <span className={styles.arrow}>▲</span>}
                 {status === "loss" && <span className={styles.arrow}>▼</span>}
-                {portfolioPercent(gain)}
+                {gainAvailable ? portfolioPercent(gain) : "—"}
               </strong>
-              <span className={styles.tierName}>{tierName(currentTier)}</span>
+              <span className={styles.tierName}>
+                {gainAvailable
+                  ? tierName(currentTier)
+                  : b.locked
+                    ? "Holding unavailable"
+                    : "Cost basis unavailable"}
+              </span>
             </div>
             <div className={styles.level} aria-hidden="true">
               {[1, 2, 3].map((n) => (

@@ -10,6 +10,8 @@ import {
   type WalletBalances,
 } from "../lib/mainnet";
 import { useMainnetWallet } from "./use-mainnet-wallet";
+import { companyMetadata, observedPrice } from "../lib/mainnet-research";
+import MainnetPerformance from "./mainnet-performance";
 import StockLogo from "./stock-logo";
 import styles from "./civic-panel.module.css";
 
@@ -19,7 +21,7 @@ export type MainnetCityHallProps = {
   balanceLoading?: boolean;
   balanceError?: string | null;
   receipts?: MainnetReceipt[];
-  onConnectWallet?: () => Promise<`0x${string}`>;
+  onConnectWallet?: () => void | Promise<`0x${string}`>;
   onFocusTicker?: (ticker: string) => void;
   onTrade?: (assetAddress: string, side: "buy" | "sell") => void;
   onRefresh?: () => void;
@@ -68,7 +70,8 @@ export default function CivicCityHall({
   const balance =
     providedBalance !== undefined ? providedBalance : live.balance;
   const matchingBalance =
-    balance && balance.account.toLowerCase() === walletAddress?.toLowerCase()
+    balance?.chainId === 56 &&
+    balance.account.toLowerCase() === walletAddress?.toLowerCase()
       ? balance
       : null;
   const loading =
@@ -76,6 +79,10 @@ export default function CivicCityHall({
   const readError = providedBalance === undefined ? live.error : balanceError;
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [hallView, setHallView] = useState<"holdings" | "performance">(
+    "holdings",
+  );
+  useEffect(() => setHallView("holdings"), [walletAddress]);
   useEffect(() => {
     onBusy?.(connecting);
     return () => onBusy?.(false);
@@ -85,14 +92,25 @@ export default function CivicCityHall({
     [];
   const pricedHoldings = holdings.filter(
     (holding) =>
-      holding.asset.priceUsd !== null && Number(holding.asset.priceUsd) > 0,
+      observedPrice(holding.asset) !== null &&
+      Number.isFinite(Number(holding.formatted)),
   );
   const valued = pricedHoldings.reduce(
     (sum, holding) =>
-      sum + Number(holding.formatted) * Number(holding.asset.priceUsd),
+      sum + Number(holding.formatted) * observedPrice(holding.asset)!,
     0,
   );
   const unpriced = holdings.length - pricedHoldings.length;
+  const sectorValues = new Map<string, number>();
+  for (const holding of holdings) {
+    const sector = companyMetadata(holding.asset).sector;
+    const value = Number(holding.formatted) * Number(holding.asset.priceUsd);
+    sectorValues.set(
+      sector,
+      (sectorValues.get(sector) ?? 0) + (Number.isFinite(value) ? value : 0),
+    );
+  }
+  const sectors = [...sectorValues.entries()].sort((a, b) => b[1] - a[1]);
   const history = receipts
     .filter(
       (receipt) =>
@@ -140,299 +158,374 @@ export default function CivicCityHall({
           {loading ? "Reading wallet…" : "Refresh wallet"}
         </button>
       </div>
-      {!walletAddress ? (
-        <div className={styles.empty}>
-          <h4>Connect your wallet to see your holdings.</h4>
-          <p>
-            USDT funds purchases and BNB pays transaction fees on BNB Smart
-            Chain.
-          </p>
-          {onConnectWallet && (
-            <button
-              type="button"
-              className={styles.primary}
-              disabled={connecting}
-              onClick={() => void connect()}
-            >
-              <Wallet size={15} />
-              {connecting ? "Connecting…" : "Connect wallet"}
-            </button>
-          )}
-        </div>
-      ) : (
-        <>
-          <div className={styles.summaryStrip}>
-            <Metric
-              label={unpriced ? "Priced token value" : "Stock token value"}
-              value={
-                matchingBalance
-                  ? holdings.length && !pricedHoldings.length
-                    ? "Price unavailable"
-                    : usd(valued)
-                  : "—"
-              }
-              detail={
-                matchingBalance
-                  ? `${pricedHoldings.length} priced ${pricedHoldings.length === 1 ? "holding" : "holdings"}${unpriced ? ` · ${unpriced} price unavailable` : " · market observations"}`
-                  : "Waiting for BSC balances"
-              }
-            />
-            <Metric
-              label="Available USDT"
-              value={
-                matchingBalance
-                  ? `${units(matchingBalance.usdt.formatted, 6)} USDT`
-                  : "—"
-              }
-              detail="Actual wallet balance · purchases and sale proceeds"
-            />
-            <Metric
-              label="BNB for gas"
-              value={
-                matchingBalance
-                  ? `${units(matchingBalance.bnb.formatted)} BNB`
-                  : "—"
-              }
-              detail="Actual wallet balance · transaction fees"
-            />
-          </div>
-          {readError && (
-            <p className={styles.warning} role="alert">
-              {readError}{" "}
-              {matchingBalance
-                ? "Previously read balances are shown; refresh before trading."
-                : "Balances have not been verified."}
-            </p>
-          )}
-          <div className={styles.hallGrid}>
-            <section
-              className={styles.section}
-              aria-labelledby="mainnet-wallet-holdings"
-            >
-              <div className={styles.sectionHeading}>
-                <h4 id="mainnet-wallet-holdings">Your stock tokens</h4>
-                <span>
-                  {holdings.length} {holdings.length === 1 ? "asset" : "assets"}
-                </span>
-              </div>
-              {!matchingBalance ? (
-                <p className={styles.caption}>
-                  {loading
-                    ? "Reading BSC wallet balances…"
-                    : "Balances unavailable. Refresh to retry."}
-                </p>
-              ) : !holdings.length ? (
-                <div className={styles.empty}>
-                  <h4>Your first stock token starts the city.</h4>
-                  <p>
-                    Review a supported token, buy a fraction with USDT, and wait
-                    for confirmed settlement.
-                  </p>
-                  {onClose && (
-                    <button
-                      type="button"
-                      className={styles.secondary}
-                      onClick={onClose}
-                    >
-                      Return to city <ArrowUpRight size={15} />
-                    </button>
-                  )}
-                </div>
-              ) : (
-                holdings.map((holding) => {
-                  const price = holding.asset.priceUsd
-                    ? Number(holding.asset.priceUsd)
-                    : null;
-                  return (
-                    <div
-                      key={holding.asset.address}
-                      className={styles.holdingRow}
-                    >
-                      <div className={styles.assetIdentity}>
-                        <StockLogo
-                          ticker={holding.asset.ticker}
-                          name={holding.asset.name}
-                          size={36}
-                        />
-                        <div>
-                          <strong>{holding.asset.symbol}</strong>
-                          <small>
-                            {units(holding.formatted)} tokens ·{" "}
-                            {holding.asset.platform}
-                          </small>
-                          <small>Wallet balance verified on BSC</small>
-                        </div>
-                      </div>
-                      <div className={styles.numeric}>
-                        <strong>
-                          {price && Number.isFinite(price)
-                            ? usd(Number(holding.formatted) * price)
-                            : "Price unavailable"}
-                        </strong>
-                        <small>
-                          {price && Number.isFinite(price)
-                            ? `${usd(price)} / token`
-                            : "Token quantity remains verified"}
-                        </small>
-                        {holding.asset.priceUpdatedAt && (
-                          <small>
-                            Observed {time(holding.asset.priceUpdatedAt)}
-                          </small>
-                        )}
-                      </div>
-                      <div className={styles.rowActions}>
-                        {onTrade ? (
-                          <button
-                            type="button"
-                            className={styles.secondary}
-                            onClick={() =>
-                              onTrade(holding.asset.address, "sell")
-                            }
-                          >
-                            Sell
-                          </button>
-                        ) : onFocusTicker ? (
-                          <button
-                            type="button"
-                            className={styles.secondary}
-                            onClick={() => onFocusTicker(holding.asset.ticker)}
-                          >
-                            Manage
-                          </button>
-                        ) : (
-                          <a
-                            className={styles.textLink}
-                            href={bscAddressLink(holding.asset.address)}
-                            target="_blank"
-                            rel="noreferrer"
-                          >
-                            Token <ExternalLink size={13} />
-                          </a>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })
-              )}
-            </section>
-            <aside className={styles.treasury}>
-              <section className={styles.section}>
-                <div className={styles.sectionHeading}>
-                  <h4>Settlement wallet</h4>
-                  <span>BSC · 56</span>
-                </div>
-                <p className={styles.caption}>
-                  Stock tokens and USDT settle directly in this wallet. Sales
-                  return USDT here after confirmed execution.
-                </p>
-                <dl className={styles.facts}>
-                  <Fact label="Address">
-                    {walletAddress.slice(0, 6)}…{walletAddress.slice(-4)}
-                  </Fact>
-                  <Fact label="Updated">
-                    {matchingBalance
-                      ? time(matchingBalance.fetchedAt)
-                      : "Not yet verified"}
-                  </Fact>
-                  <Fact label="Trading">Spot · USDT pairs</Fact>
-                </dl>
-                <div className={styles.sourceLinks}>
-                  <a
-                    href={bscAddressLink(walletAddress)}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    Wallet on BscScan <ExternalLink size={13} />
-                  </a>
-                  <a
-                    href={bscAddressLink(USDT_ADDRESS)}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    USDT contract <ExternalLink size={13} />
-                  </a>
-                </div>
-                <p className={styles.caption}>
-                  Tokenized stocks are issuer tokens with their own terms.
-                  Market prices can differ from the underlying stock.
-                </p>
-              </section>
-            </aside>
-          </div>
-          <section
-            className={styles.section}
-            aria-labelledby="mainnet-trade-receipts"
+      <div
+        className={styles.hallTabs}
+        role="tablist"
+        aria-label="City Hall views"
+      >
+        {(["holdings", "performance"] as const).map((view) => (
+          <button
+            key={view}
+            type="button"
+            role="tab"
+            aria-selected={hallView === view}
+            className={hallView === view ? styles.hallTabActive : ""}
+            onClick={() => setHallView(view)}
           >
-            <div className={styles.sectionHeading}>
-              <h4 id="mainnet-trade-receipts">Trade receipts</h4>
-              <span>
-                {history.length} {history.length === 1 ? "trade" : "trades"}
-              </span>
+            {view === "holdings" ? "Holdings" : "Performance"}
+          </button>
+        ))}
+      </div>
+      {hallView === "holdings" &&
+        (!walletAddress ? (
+          <div className={styles.empty}>
+            <h4>Connect your wallet to see your holdings.</h4>
+            <p>
+              USDT funds purchases and BNB pays transaction fees on BNB Smart
+              Chain.
+            </p>
+            {onConnectWallet && (
+              <button
+                type="button"
+                className={styles.primary}
+                disabled={connecting}
+                onClick={() => void connect()}
+              >
+                <Wallet size={15} />
+                {connecting ? "Connecting…" : "Connect wallet"}
+              </button>
+            )}
+          </div>
+        ) : (
+          <>
+            <div className={styles.summaryStrip}>
+              <Metric
+                label={unpriced ? "Priced token value" : "Stock token value"}
+                value={
+                  matchingBalance
+                    ? holdings.length && !pricedHoldings.length
+                      ? "Price unavailable"
+                      : usd(valued)
+                    : "—"
+                }
+                detail={
+                  matchingBalance
+                    ? `${pricedHoldings.length} priced ${pricedHoldings.length === 1 ? "holding" : "holdings"}${unpriced ? ` · ${unpriced} price unavailable` : " · market observations"}`
+                    : "Waiting for BSC balances"
+                }
+              />
+              <Metric
+                label="Available USDT"
+                value={
+                  matchingBalance
+                    ? `${units(matchingBalance.usdt.formatted, 6)} USDT`
+                    : "—"
+                }
+                detail="Actual wallet balance · purchases and sale proceeds"
+              />
+              <Metric
+                label="BNB for gas"
+                value={
+                  matchingBalance
+                    ? `${units(matchingBalance.bnb.formatted)} BNB`
+                    : "—"
+                }
+                detail="Actual wallet balance · transaction fees"
+              />
             </div>
-            {!history.length && (
-              <p className={styles.caption}>
-                Trades made in Stockva with this wallet will appear here.
+            {readError && (
+              <p className={styles.warning} role="alert">
+                {readError}{" "}
+                {matchingBalance
+                  ? "Previously read balances are shown; refresh before trading."
+                  : "Balances have not been verified."}
               </p>
             )}
-            {history.map((receipt) => (
-              <div key={receipt.quoteId} className={styles.transaction}>
-                <div>
-                  <strong>
-                    {receipt.side === "buy" ? "Buy" : "Sell"}{" "}
-                    {receipt.asset.symbol} · {statusLabel[receipt.status]}
-                  </strong>
-                  <small>
-                    {receipt.fromFormatted ?? "—"}{" "}
-                    {receipt.side === "buy" ? "USDT" : receipt.asset.symbol} →{" "}
-                    {receipt.toFormatted ?? "—"}{" "}
-                    {receipt.side === "buy" ? receipt.asset.symbol : "USDT"} ·{" "}
-                    {time(receipt.filledAt ?? receipt.createdAt)}
-                  </small>
-                  {receipt.error && (
-                    <small className={styles.warning}>{receipt.error}</small>
+            <div className={styles.hallGrid}>
+              <section
+                className={styles.section}
+                aria-labelledby="mainnet-wallet-holdings"
+              >
+                <div className={styles.sectionHeading}>
+                  <h4 id="mainnet-wallet-holdings">Your stock tokens</h4>
+                  <span>
+                    {holdings.length}{" "}
+                    {holdings.length === 1 ? "asset" : "assets"}
+                  </span>
+                </div>
+                {!matchingBalance ? (
+                  <p className={styles.caption}>
+                    {loading
+                      ? "Reading BSC wallet balances…"
+                      : "Balances unavailable. Refresh to retry."}
+                  </p>
+                ) : !holdings.length ? (
+                  <div className={styles.empty}>
+                    <h4>Your first stock token starts the city.</h4>
+                    <p>
+                      Review a supported token, buy a fraction with USDT, and
+                      wait for confirmed settlement.
+                    </p>
+                    {onClose && (
+                      <button
+                        type="button"
+                        className={styles.secondary}
+                        onClick={onClose}
+                      >
+                        Return to city <ArrowUpRight size={15} />
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  holdings.map((holding) => {
+                    const price = holding.asset.priceUsd
+                      ? Number(holding.asset.priceUsd)
+                      : null;
+                    return (
+                      <div
+                        key={holding.asset.address}
+                        className={styles.holdingRow}
+                      >
+                        <div className={styles.assetIdentity}>
+                          <StockLogo
+                            ticker={holding.asset.ticker}
+                            name={holding.asset.name}
+                            size={36}
+                          />
+                          <div>
+                            <strong>{holding.asset.symbol}</strong>
+                            <small>
+                              {units(holding.formatted)} tokens ·{" "}
+                              {holding.asset.platform}
+                            </small>
+                            <small>Wallet balance verified on BSC</small>
+                          </div>
+                        </div>
+                        <div className={styles.numeric}>
+                          <strong>
+                            {price && Number.isFinite(price)
+                              ? usd(Number(holding.formatted) * price)
+                              : "Price unavailable"}
+                          </strong>
+                          <small>
+                            {price && Number.isFinite(price)
+                              ? `${usd(price)} / token`
+                              : "Token quantity remains verified"}
+                          </small>
+                          {holding.asset.priceUpdatedAt && (
+                            <small>
+                              Observed {time(holding.asset.priceUpdatedAt)}
+                            </small>
+                          )}
+                        </div>
+                        <div className={styles.rowActions}>
+                          {onTrade ? (
+                            <button
+                              type="button"
+                              className={styles.secondary}
+                              onClick={() =>
+                                onTrade(holding.asset.address, "sell")
+                              }
+                            >
+                              Sell
+                            </button>
+                          ) : onFocusTicker ? (
+                            <button
+                              type="button"
+                              className={styles.secondary}
+                              onClick={() =>
+                                onFocusTicker(holding.asset.ticker)
+                              }
+                            >
+                              Manage
+                            </button>
+                          ) : (
+                            <a
+                              className={styles.textLink}
+                              href={bscAddressLink(holding.asset.address)}
+                              target="_blank"
+                              rel="noreferrer"
+                            >
+                              Token <ExternalLink size={13} />
+                            </a>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </section>
+              <aside className={styles.treasury}>
+                <section
+                  className={styles.section}
+                  aria-label="Sector allocation"
+                >
+                  <div className={styles.sectionHeading}>
+                    <h4>Sector allocation</h4>
+                    <span>Actual wallet holdings</span>
+                  </div>
+                  {sectors.length ? (
+                    sectors.map(([sector, value]) => (
+                      <div className={styles.allocation} key={sector}>
+                        <div>
+                          <span>{sector}</span>
+                          <strong>
+                            {unpriced || valued <= 0
+                              ? "—"
+                              : `${((value / valued) * 100).toFixed(1)}%`}
+                          </strong>
+                        </div>
+                        <div className={styles.bar}>
+                          <span
+                            style={{
+                              width:
+                                unpriced || valued <= 0
+                                  ? "0%"
+                                  : `${(value / valued) * 100}%`,
+                            }}
+                          />
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <p className={styles.caption}>
+                      {matchingBalance
+                        ? "Sector allocation appears after your first token purchase."
+                        : "Load your wallet to inspect its allocation."}
+                    </p>
                   )}
-                  {receipt.approvalHash && (
+                  {unpriced > 0 && (
+                    <p className={styles.caption}>
+                      Allocation is unavailable while any holding lacks a token
+                      price.
+                    </p>
+                  )}
+                </section>
+                <section className={styles.section}>
+                  <div className={styles.sectionHeading}>
+                    <h4>Settlement wallet</h4>
+                    <span>BSC · 56</span>
+                  </div>
+                  <p className={styles.caption}>
+                    Stock tokens and USDT settle directly in this wallet. Sales
+                    return USDT here after confirmed execution.
+                  </p>
+                  <dl className={styles.facts}>
+                    <Fact label="Address">
+                      {walletAddress.slice(0, 6)}…{walletAddress.slice(-4)}
+                    </Fact>
+                    <Fact label="Updated">
+                      {matchingBalance
+                        ? time(matchingBalance.fetchedAt)
+                        : "Not yet verified"}
+                    </Fact>
+                    <Fact label="Trading">Spot · USDT pairs</Fact>
+                  </dl>
+                  <div className={styles.sourceLinks}>
                     <a
-                      className={styles.textLink}
-                      href={bscTxLink(receipt.approvalHash)}
+                      href={bscAddressLink(walletAddress)}
                       target="_blank"
                       rel="noreferrer"
                     >
-                      Allowance approval <ExternalLink size={12} />
+                      Wallet on BscScan <ExternalLink size={13} />
                     </a>
+                    <a
+                      href={bscAddressLink(USDT_ADDRESS)}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      USDT contract <ExternalLink size={13} />
+                    </a>
+                  </div>
+                  <p className={styles.caption}>
+                    Tokenized stocks are issuer tokens with their own terms.
+                    Market prices can differ from the underlying stock.
+                  </p>
+                </section>
+              </aside>
+            </div>
+            <section
+              className={styles.section}
+              aria-labelledby="mainnet-trade-receipts"
+            >
+              <div className={styles.sectionHeading}>
+                <h4 id="mainnet-trade-receipts">Trade receipts</h4>
+                <span>
+                  {history.length} {history.length === 1 ? "trade" : "trades"}
+                </span>
+              </div>
+              {!history.length && (
+                <p className={styles.caption}>
+                  Trades made in Stockva with this wallet will appear here.
+                </p>
+              )}
+              {history.map((receipt) => (
+                <div key={receipt.quoteId} className={styles.transaction}>
+                  <div>
+                    <strong>
+                      {receipt.side === "buy" ? "Buy" : "Sell"}{" "}
+                      {receipt.asset.symbol} · {statusLabel[receipt.status]}
+                    </strong>
+                    <small>
+                      {receipt.fromFormatted ?? "—"}{" "}
+                      {receipt.side === "buy" ? "USDT" : receipt.asset.symbol} →{" "}
+                      {receipt.toFormatted ?? "—"}{" "}
+                      {receipt.side === "buy" ? receipt.asset.symbol : "USDT"} ·{" "}
+                      {time(receipt.filledAt ?? receipt.createdAt)}
+                    </small>
+                    {receipt.error && (
+                      <small className={styles.warning}>{receipt.error}</small>
+                    )}
+                    {receipt.approvalHash && (
+                      <a
+                        className={styles.textLink}
+                        href={bscTxLink(receipt.approvalHash)}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        Allowance approval <ExternalLink size={12} />
+                      </a>
+                    )}
+                  </div>
+                  {receipt.txHash ? (
+                    <a
+                      href={bscTxLink(receipt.txHash)}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      <code>
+                        {receipt.txHash.slice(0, 8)}…{receipt.txHash.slice(-6)}
+                      </code>
+                      <ExternalLink size={14} />
+                      <span className={styles.srOnly}>
+                        View trade transaction
+                      </span>
+                    </a>
+                  ) : (
+                    <small>
+                      {receipt.status === "PENDING"
+                        ? "Receipt pending"
+                        : "No settlement transaction"}
+                    </small>
                   )}
                 </div>
-                {receipt.txHash ? (
-                  <a
-                    href={bscTxLink(receipt.txHash)}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    <code>
-                      {receipt.txHash.slice(0, 8)}…{receipt.txHash.slice(-6)}
-                    </code>
-                    <ExternalLink size={14} />
-                    <span className={styles.srOnly}>
-                      View trade transaction
-                    </span>
-                  </a>
-                ) : (
-                  <small>
-                    {receipt.status === "PENDING"
-                      ? "Receipt pending"
-                      : "No settlement transaction"}
-                  </small>
-                )}
-              </div>
-            ))}
-            <p className={styles.caption}>
-              This view covers Stockva trades. Your wallet explorer shows its
-              complete on-chain activity. Only confirmed trades update wallet
-              holdings.
-            </p>
-          </section>
-        </>
-      )}
+              ))}
+              <p className={styles.caption}>
+                This view covers Stockva trades. Your wallet explorer shows its
+                complete on-chain activity. Only confirmed trades update wallet
+                holdings.
+              </p>
+            </section>
+          </>
+        ))}
+      <MainnetPerformance
+        active={hallView === "performance"}
+        account={walletAddress ?? null}
+        balance={matchingBalance}
+        readError={readError}
+        receipts={receipts}
+        onTrade={onTrade}
+      />
       {error && (
         <p className={styles.warning} role="alert">
           {error}

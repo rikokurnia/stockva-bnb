@@ -4752,3 +4752,35 @@ input {
   background: rgba(239, 68, 68, 0.2);
   border: 1px solid rgba(248, 113, 113, 0.45);
 }
+
+/* Status feedback uses the existing city palette without changing the original shell. */
+.mainnet-layout-notice {
+  position: absolute;
+  z-index: 1200;
+  bottom: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: min(520px, calc(100vw - 150px));
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: rgba(14, 34, 48, 0.92);
+  color: #f0f6fa;
+  font-size: 11px;
+  line-height: 1.5;
+  opacity: 0;
+  pointer-events: none;
+}
+.mainnet-layout-notice.visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+.mainnet-layout-notice button {
+  color: #f4cd60;
+  margin-left: 8px;
+}
+@media (max-width: 600px) {
+  .mainnet-layout-notice {
+    bottom: 80px;
+    max-width: calc(100vw - 90px);
+  }
+}

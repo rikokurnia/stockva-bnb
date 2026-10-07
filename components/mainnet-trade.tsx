@@ -24,6 +24,7 @@ export default function MainnetTrade({
   side,
   account,
   holding,
+  initialAmount,
   balance,
   getProvider,
   onReceipt,
@@ -33,12 +34,15 @@ export default function MainnetTrade({
   side: "buy" | "sell";
   account: EvmAddress;
   holding: string;
+  initialAmount?: string;
   balance: WalletBalances | null;
   getProvider: () => Promise<WalletProvider>;
   onReceipt: (r: MainnetReceipt) => void;
   onClose: () => void;
 }) {
-  const [amount, setAmount] = useState(side === "buy" ? "1" : holding);
+  const [amount, setAmount] = useState(
+    initialAmount ?? (side === "buy" ? "1" : holding),
+  );
   const [build, setBuild] = useState<TradeBuild | null>(null);
   const [loading, setLoading] = useState(false);
   const [executing, setExecuting] = useState(false);

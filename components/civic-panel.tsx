@@ -2,16 +2,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import { X } from "lucide-react";
-import {
-  sprite,
-  defFor,
-  type Building,
-  type BuildingKind,
-  type CityState,
-  type PriceMap,
-} from "../lib/city";
-import type { MarketFeed } from "../lib/market";
-import type { MainnetReceipt, WalletBalances } from "../lib/mainnet";
+import { sprite, defFor, type Building, type CityState } from "../lib/city";
+import type {
+  EvmAddress,
+  MainnetAsset,
+  MainnetReceipt,
+  WalletBalances,
+} from "../lib/mainnet";
 import CivicCityHall from "./civic-city-hall";
 import CivicMarket from "./civic-market";
 import RwaSessionClock from "./rwa-session-clock";
@@ -21,33 +18,25 @@ export type CivicMode = "portfolio" | "market" | "data";
 export type CivicProps = {
   mode: CivicMode;
   city: CityState;
-  prices: PriceMap;
-  feed: MarketFeed;
+  assets: MainnetAsset[];
+  balance: WalletBalances | null;
+  receipts: MainnetReceipt[];
   loading: boolean;
-  initialTicker: string | null;
+  error?: string | null;
+  balanceLoading?: boolean;
+  balanceError?: string | null;
+  walletAddress?: EvmAddress | null;
+  initialAsset: MainnetAsset | null;
   onClose: () => void;
   onRetry: () => void;
-  onBuy: (kind: BuildingKind, amount: number) => void;
-  onBuyBundle: (items: { kind: BuildingKind; amount: number }[]) => string;
-  onBuyPaper: (ticker: string, amount: number) => string;
-  onSell: (ticker: string, fraction: number) => string;
-  onSellPaper: (ticker: string, fraction: number) => string;
+  onTrade: (asset: MainnetAsset, side: "buy" | "sell", amount?: string) => void;
+  onPlaceAsset: (asset: MainnetAsset) => void;
   onFocus: (building: Building) => void;
   onScan: () => void;
-  walletAddress?: `0x${string}` | null;
-  onConnectWallet?: () => Promise<`0x${string}`>;
-  onAddDemoCash?: (amount?: number) => void;
-  onClaimFaucet?: () => void;
-  onConfirmBatch?: (
-    receipts: { buildingId: string; hash: `0x${string}`; vaultId: string }[],
-  ) => void;
-  transactionPending?: boolean;
-  onPurchaseSubmitted?: (
-    purchase: import("../lib/rebalance-execution").PendingDirectPurchase,
-  ) => void;
-  receipts?: MainnetReceipt[];
-  balance?: WalletBalances | null;
+  onConnectWallet: () => void;
+  onFundWallet: () => void;
 };
+
 const services = {
   portfolio: {
     title: "City Hall",
@@ -57,7 +46,7 @@ const services = {
   market: {
     title: "Stock Exchange",
     image: "functional/stock_exchange",
-    description: "Research assets. Build a bundle.",
+    description: "Research assets. Build a basket.",
   },
   data: {
     title: "Data Center",
@@ -160,9 +149,19 @@ export default function CivicPanel(props: CivicProps) {
         <div ref={body} className={styles.body}>
           {mode === "portfolio" ? (
             <CivicCityHall
-              walletAddress={props.walletAddress}
+              walletAddress={props.walletAddress ?? props.balance?.account}
               balance={props.balance}
               receipts={props.receipts}
+              balanceLoading={props.balanceLoading}
+              balanceError={props.balanceError}
+              onRefresh={props.onRetry}
+              onTrade={(address, side) => {
+                const asset = props.assets.find(
+                  (item) =>
+                    item.address.toLowerCase() === address.toLowerCase(),
+                );
+                if (asset) props.onTrade(asset, side);
+              }}
               onConnectWallet={props.onConnectWallet}
               onClose={props.onClose}
               onBusy={setBusy}
