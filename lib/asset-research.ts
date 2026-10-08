@@ -371,13 +371,13 @@ export function buildOhlcSeries(
   return bars;
 }
 
-/** Wilder RSI, computed on observed hourly closes, not generated prices. */
-export function relativeStrength(
+/** Wilder RSI, computed on observed closes, not generated prices. */
+export function relativeStrengthSeries(
   points: ObservedPoint[],
   period = 14,
-): number | null {
+): ObservedPoint[] {
   if (!Number.isInteger(period) || period < 1 || points.length <= period)
-    return null;
+    return [];
   let gain = 0,
     loss = 0;
   for (let i = 1; i <= period; i++) {
@@ -385,10 +385,21 @@ export function relativeStrength(
     gain += Math.max(0, delta) / period;
     loss += Math.max(0, -delta) / period;
   }
+  const value = () =>
+    loss === 0 ? (gain === 0 ? 50 : 100) : 100 - 100 / (1 + gain / loss);
+  const output = [{ time: points[period].time, value: value() }];
   for (let i = period + 1; i < points.length; i++) {
     const delta = points[i].value - points[i - 1].value;
     gain = (gain * (period - 1) + Math.max(0, delta)) / period;
     loss = (loss * (period - 1) + Math.max(0, -delta)) / period;
+    output.push({ time: points[i].time, value: value() });
   }
-  return loss === 0 ? (gain === 0 ? 50 : 100) : 100 - 100 / (1 + gain / loss);
+  return output;
+}
+
+export function relativeStrength(
+  points: ObservedPoint[],
+  period = 14,
+): number | null {
+  return relativeStrengthSeries(points, period).at(-1)?.value ?? null;
 }

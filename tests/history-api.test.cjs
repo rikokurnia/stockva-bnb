@@ -135,3 +135,47 @@ test("S&P 100 research remains available when the entire issuer catalogue fails"
     global.fetch = original;
   }
 });
+
+test("underlying volume retains genuine zero and never overwrites token volume at matching timestamps", async () => {
+  const original = global.fetch;
+  const at = Math.floor(Date.now() / 1000) - 60;
+  trading.listMainnetAssets = async () => [asset];
+  binance.binanceRequest = async () => [[10, 13, 9, 11, 2, at * 1000, 1]];
+  global.fetch = async () =>
+    new Response(
+      JSON.stringify({
+        chart: {
+          result: [
+            {
+              meta: { regularMarketPrice: 12, regularMarketTime: at },
+              timestamp: [at, at + 1, at + 2],
+              indicators: {
+                quote: [
+                  {
+                    close: [12, 13, 14],
+                    open: [10, null, -1],
+                    volume: [0, null, -1],
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      }),
+    );
+  try {
+    const data = await (
+      await GET(request(`ticker=NVDA&contract=${address}`))
+    ).json();
+    assert.equal(data.points[0].volume, 2);
+    assert.equal(data.points[0].open, 10);
+    assert.equal(data.points[0].benchmarkVolume, 0);
+    assert.equal(data.points[0].benchmarkOpen, 10);
+    assert.equal(data.points[1].benchmarkVolume, undefined);
+    assert.equal(data.points[1].benchmarkOpen, undefined);
+    assert.equal(data.points[2].benchmarkVolume, undefined);
+    assert.equal(data.points[2].benchmarkOpen, undefined);
+  } finally {
+    global.fetch = original;
+  }
+});

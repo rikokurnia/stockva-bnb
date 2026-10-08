@@ -144,7 +144,24 @@ export async function GET(request: NextRequest) {
           close > 0
         ) {
           const key = at * 1000;
-          points.set(key, { ...points.get(key), time: key, benchmark: close });
+          const quote = result.indicators?.quote?.[0];
+          const open = quote?.open?.[index];
+          const volume = quote?.volume?.[index];
+          points.set(key, {
+            ...points.get(key),
+            time: key,
+            benchmark: close,
+            benchmarkOpen:
+              typeof open === "number" && Number.isFinite(open) && open > 0
+                ? open
+                : undefined,
+            benchmarkVolume:
+              typeof volume === "number" &&
+              Number.isFinite(volume) &&
+              volume >= 0
+                ? volume
+                : undefined,
+          });
         }
       });
     }

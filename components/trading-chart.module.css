@@ -254,3 +254,39 @@
   color: rgba(255, 255, 255, 0.35);
   text-transform: uppercase;
 }
+
+/* Compact controls retain the existing chart theme and wrap on phones. */
+.topBar,
+.bottomLegend,
+.legendItems {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.indicatorControls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 6px 10px;
+}
+.indicatorControls button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.indicatorDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+.indicatorValue {
+  color: #cbd5e1;
+  font-family: var(--mono, monospace);
+  font-weight: 400;
+}
+.indicatorNote {
+  margin: 0;
+  padding: 4px 14px 8px;
+  color: var(--civic-muted);
+  font-size: 10px;
+  line-height: 1.5;
+}

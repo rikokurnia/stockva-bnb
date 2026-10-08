@@ -4,6 +4,7 @@ import {
   createChart,
   AreaSeries,
   LineSeries,
+  HistogramSeries,
   ColorType,
   CrosshairMode,
   LineStyle,
@@ -12,6 +13,10 @@ import {
   type UTCTimestamp,
 } from "lightweight-charts";
 import type { PricePoint } from "../lib/market";
+import {
+  chartObservations,
+  type ChartIndicators,
+} from "../lib/chart-indicators";
 import { money, pct } from "../lib/city";
 import styles from "./trading-chart.module.css";
 
@@ -19,6 +24,8 @@ export type Timeframe = "1h" | "1d" | "1w";
 
 type Props = {
   points: PricePoint[];
+  indicators?: ChartIndicators;
+  onIndicatorsChange?: (indicators: ChartIndicators) => void;
   timeframe?: Timeframe;
   onTimeframeChange?: (timeframe: Timeframe) => void;
   compare?: boolean;
@@ -36,10 +43,13 @@ type HoverState = {
   timeStr: string;
   tokenPrice?: number;
   benchmarkPrice?: number;
+  indicators: Partial<Record<keyof ChartIndicators, number>>;
 };
 
 export default function TradingChart({
   points,
+  indicators,
+  onIndicatorsChange,
   timeframe: controlledTimeframe,
   onTimeframeChange,
   compare = false,
@@ -66,65 +76,37 @@ export default function TradingChart({
       ? livePrice
       : undefined;
 
-  // Only provider observations appear on the chart. Current quote display does
-  // not alter timestamps or fill gaps in the historical series.
-  const { tokenData, benchmarkData, latestToken, priceChangePct, isPositive } =
-    useMemo(() => {
-      const windowMs =
-        timeframe === "1h"
-          ? 3600000
-          : timeframe === "1d"
-            ? 86400000
-            : 7 * 86400000;
-      const cutoff = Date.now() - windowMs;
-      const tokens = new Map<number, number>();
-      const references = new Map<number, number>();
-      for (const point of simulated
-        ? []
-        : [...points].sort((a, b) => a.time - b.time)) {
-        if (
-          !Number.isFinite(point.time) ||
-          point.time < cutoff ||
-          point.time > Date.now()
-        )
-          continue;
-        const time = Math.floor(point.time / 1000);
-        if (
-          point.token !== undefined &&
-          Number.isFinite(point.token) &&
-          point.token > 0
-        )
-          tokens.set(time, point.token);
-        if (
-          compare &&
-          point.benchmark !== undefined &&
-          Number.isFinite(point.benchmark) &&
-          point.benchmark > 0
-        )
-          references.set(time, point.benchmark);
-      }
-      const tokenSeries = [...tokens].map(([time, value]) => ({
-        time: time as UTCTimestamp,
-        value,
-      }));
-      const benchSeries = [...references].map(([time, value]) => ({
-        time: time as UTCTimestamp,
-        value,
-      }));
-      const first = tokenSeries[0]?.value;
-      const last = tokenSeries.at(-1)?.value;
-      const change =
-        first !== undefined && last !== undefined && tokenSeries.length > 1
-          ? ((last - first) / first) * 100
-          : undefined;
-      return {
-        tokenData: tokenSeries,
-        benchmarkData: benchSeries,
-        latestToken: last,
-        priceChangePct: change,
-        isPositive: change === undefined || change >= 0,
-      };
-    }, [points, timeframe, compare, simulated]);
+  const observations = useMemo(
+    () => chartObservations(points, "token", timeframe, simulated),
+    [points, timeframe, simulated],
+  );
+  const benchmarkObservations = useMemo(
+    () =>
+      compare
+        ? chartObservations(points, "benchmark", timeframe, simulated).price
+        : [],
+    [points, timeframe, simulated, compare],
+  );
+  const toChart = (data: { time: number; value: number }[]) =>
+    data.map((point) => ({
+      time: Math.floor(point.time / 1000) as UTCTimestamp,
+      value: point.value,
+    }));
+  const tokenData = useMemo(() => toChart(observations.price), [observations]);
+  const benchmarkData = useMemo(
+    () => toChart(benchmarkObservations),
+    [benchmarkObservations],
+  );
+  const latestToken = tokenData.at(-1)?.value;
+  const first = tokenData[0]?.value;
+  const priceChangePct =
+    first !== undefined && latestToken !== undefined && tokenData.length > 1
+      ? ((latestToken - first) / first) * 100
+      : undefined;
+  const isPositive = priceChangePct === undefined || priceChangePct >= 0;
+  const showVolume = !!indicators?.volume && observations.volume.length > 0;
+  const showRsi = !!indicators?.rsi && observations.rsi.length > 0;
+  const chartHeight = 220 + (showVolume ? 80 : 0) + (showRsi ? 100 : 0);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -141,7 +123,8 @@ export default function TradingChart({
 
     const container = containerRef.current;
     const width = container.clientWidth || 400;
-    const height = 220;
+    const height = chartHeight;
+    setHoverData(null);
 
     const chart = createChart(container, {
       width,
@@ -244,6 +227,94 @@ export default function TradingChart({
       benchmarkSeriesRef.current = benchmarkSeries;
     }
 
+    const indicatorSeries = new Map<
+      keyof ChartIndicators,
+      ISeriesApi<"Line"> | ISeriesApi<"Histogram">
+    >();
+    const averages = [
+      ["ma10", "MA 10", "#fbbf24"],
+      ["ma20", "MA 20", "#38bdf8"],
+      ["sma50", "SMA 50", "#c084fc"],
+    ] as const;
+    for (const [key, title, color] of averages) {
+      if (!indicators?.[key] || !observations[key].length) continue;
+      const series = chart.addSeries(LineSeries, {
+        color,
+        title,
+        lineWidth: 1,
+        priceLineVisible: false,
+        lastValueVisible: false,
+        pointMarkersVisible: observations[key].length === 1,
+      });
+      series.setData(toChart(observations[key]));
+      indicatorSeries.set(key, series);
+    }
+    let nextPane = 1;
+    if (showVolume) {
+      const volume = chart.addSeries(
+        HistogramSeries,
+        {
+          title: "Vol",
+          priceFormat: { type: "volume" },
+          priceLineVisible: false,
+        },
+        nextPane++,
+      );
+      volume.setData(
+        observations.volume.map((point) => ({
+          time: Math.floor(point.time / 1000) as UTCTimestamp,
+          value: point.value,
+          color:
+            point.direction === "up"
+              ? "rgba(16,185,129,0.6)"
+              : point.direction === "down"
+                ? "rgba(244,63,94,0.6)"
+                : "#64748b",
+        })),
+      );
+      volume
+        .priceScale()
+        .applyOptions({ scaleMargins: { top: 0.15, bottom: 0 } });
+      indicatorSeries.set("volume", volume);
+    }
+    if (showRsi) {
+      const rsi = chart.addSeries(
+        LineSeries,
+        {
+          title: "RSI 14",
+          color: "#f59e0b",
+          lineWidth: 1,
+          priceLineVisible: false,
+          priceFormat: { type: "price", precision: 1, minMove: 0.1 },
+          autoscaleInfoProvider: () => ({
+            priceRange: { minValue: 0, maxValue: 100 },
+          }),
+          pointMarkersVisible: observations.rsi.length === 1,
+        },
+        nextPane++,
+      );
+      rsi.setData(toChart(observations.rsi));
+      for (const price of [30, 70])
+        rsi.createPriceLine({
+          price,
+          color: "#64748b",
+          lineWidth: 1,
+          lineStyle: LineStyle.Dashed,
+          axisLabelVisible: true,
+        });
+      rsi
+        .priceScale()
+        .applyOptions({ scaleMargins: { top: 0.08, bottom: 0.08 } });
+      indicatorSeries.set("rsi", rsi);
+    }
+    chart
+      .panes()
+      .forEach((pane, index) =>
+        pane.setStretchFactor(
+          index === 0 ? 220 : index === 1 && showVolume ? 80 : 100,
+        ),
+      );
+
     // Set visible range to the latest bars, leaving previous bars scrollable to the left
     const totalBars = new Set(
       [...tokenData, ...benchmarkData].map((point) => point.time),
@@ -287,6 +358,13 @@ export default function TradingChart({
           timeStr,
           tokenPrice: tokenVal?.value,
           benchmarkPrice: benchVal?.value,
+          indicators: Object.fromEntries(
+            [...indicatorSeries].map(([key, series]) => [
+              key,
+              (param.seriesData.get(series) as { value?: number } | undefined)
+                ?.value,
+            ]),
+          ),
         });
       }
     });
@@ -311,7 +389,18 @@ export default function TradingChart({
         benchmarkSeriesRef.current = null;
       }
     };
-  }, [tokenData, benchmarkData, compare, isPositive, timeframe]);
+  }, [
+    tokenData,
+    benchmarkData,
+    observations,
+    indicators,
+    compare,
+    isPositive,
+    timeframe,
+    chartHeight,
+    showVolume,
+    showRsi,
+  ]);
 
   // Compute live spread if in compare mode
   const currentSpread = useMemo(() => {
@@ -362,7 +451,65 @@ export default function TradingChart({
         </div>
       </div>
 
-      <div className={styles.chartViewport}>
+      {indicators && (
+        <div className={styles.indicatorControls} aria-label="Chart indicators">
+          {(
+            [
+              ["volume", "Vol", "#64748b"],
+              ["ma10", "MA 10", "#fbbf24"],
+              ["ma20", "MA 20", "#38bdf8"],
+              ["sma50", "SMA 50", "#c084fc"],
+              ["rsi", "RSI 14", "#f59e0b"],
+            ] as const
+          ).map(([key, label, color]) => {
+            const value = hoverData
+              ? hoverData.indicators[key]
+              : observations[key].at(-1)?.value;
+            return (
+              <button
+                key={key}
+                type="button"
+                aria-pressed={indicators[key]}
+                className={`${styles.timeframeBtn} ${indicators[key] ? styles.active : ""}`}
+                onClick={() =>
+                  onIndicatorsChange?.({
+                    ...indicators,
+                    [key]: !indicators[key],
+                  })
+                }
+                title={
+                  key === "volume"
+                    ? "Provider-reported volume per bar"
+                    : key === "rsi"
+                      ? "Wilder RSI over 14 observed bars"
+                      : `Simple moving average over ${key === "ma10" ? 10 : key === "ma20" ? 20 : 50} observed bars`
+                }
+              >
+                <span
+                  className={styles.indicatorDot}
+                  style={{ background: color }}
+                />
+                {label}
+                {indicators[key] && (
+                  <span className={styles.indicatorValue}>
+                    {value === undefined
+                      ? "—"
+                      : key === "volume"
+                        ? new Intl.NumberFormat("en", {
+                            notation: "compact",
+                            maximumFractionDigits: 2,
+                          }).format(value)
+                        : key === "rsi"
+                          ? value.toFixed(1)
+                          : money(value)}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      )}
+      <div className={styles.chartViewport} style={{ height: chartHeight }}>
         {hoverData && (
           <div className={styles.tooltipHUD}>
             <span className={styles.tooltipTime}>{hoverData.timeStr}</span>
@@ -406,6 +553,19 @@ export default function TradingChart({
         )}
       </div>
 
+      {indicators && (
+        <p className={styles.indicatorNote}>
+          MA periods count observed bars. RSI uses Wilder smoothing.
+          {indicators.volume && !showVolume
+            ? " Volume unavailable from this source."
+            : ""}
+          {(["ma10", "ma20", "sma50", "rsi"] as const).some(
+            (key) => indicators[key] && !observations[key].length,
+          )
+            ? " A dash means too few observations in this period."
+            : ""}
+        </p>
+      )}
       <div className={styles.bottomLegend}>
         <div className={styles.legendItems}>
           <div className={styles.legendItem}>

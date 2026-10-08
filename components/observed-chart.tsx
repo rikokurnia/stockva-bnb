@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
+import type { ChartIndicators } from "../lib/chart-indicators";
 import type { HistoryFeed } from "../lib/market";
 import TradingChart, { type Timeframe } from "./trading-chart";
 import styles from "./civic-panel.module.css";
@@ -7,6 +8,8 @@ import styles from "./civic-panel.module.css";
 /** Research charts show provider observations; every missing interval stays missing. */
 export default function ObservedChart({
   history,
+  indicators,
+  onIndicatorsChange,
   livePrice,
   compare = false,
   onSourceChange,
@@ -16,6 +19,8 @@ export default function ObservedChart({
   underlyingOnly = false,
 }: {
   history: HistoryFeed;
+  indicators?: ChartIndicators;
+  onIndicatorsChange?: (indicators: ChartIndicators) => void;
   timeframe?: Timeframe;
   onTimeframeChange?: (timeframe: Timeframe) => void;
   underlyingOnly?: boolean;
@@ -44,6 +49,8 @@ export default function ObservedChart({
           ? history.points.map((point) => ({
               time: point.time,
               token: point.benchmark,
+              open: point.benchmarkOpen,
+              volume: point.benchmarkVolume,
             }))
           : history.points,
     [history.simulated, history.points, underlying],
@@ -73,6 +80,8 @@ export default function ObservedChart({
       )}
       <TradingChart
         points={points}
+        indicators={indicators}
+        onIndicatorsChange={onIndicatorsChange}
         timeframe={timeframe}
         onTimeframeChange={onTimeframeChange}
         compare={compare}

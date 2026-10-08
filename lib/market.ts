@@ -42,6 +42,8 @@ export type PricePoint = {
   high?: number;
   low?: number;
   volume?: number;
+  benchmarkOpen?: number;
+  benchmarkVolume?: number;
 };
 export type HistoryFeed = {
   points: PricePoint[];

@@ -18,9 +18,6 @@ import {
 } from "../lib/mainnet-research";
 import { companyProfiles, type CompanyNews } from "../lib/company-intel";
 import {
-  movingAverage,
-  observedSeries,
-  relativeStrength,
   type AssetResearch,
   type FinancialMetric,
 } from "../lib/asset-research";
@@ -31,6 +28,10 @@ import { stamp } from "../lib/civic";
 import StockLogo from "./stock-logo";
 import { priceFreshness, type ResearchCompany } from "../lib/stock-universe";
 import type { HistoryPeriod } from "../lib/market-observations";
+import {
+  chartObservations,
+  DEFAULT_CHART_INDICATORS,
+} from "../lib/chart-indicators";
 import ObservedChart from "./observed-chart";
 import styles from "./civic-panel.module.css";
 
@@ -133,6 +134,9 @@ export default function CivicResearch(props: Props) {
   const inspection = mode === "data";
   const [tab, setTab] = useState("technical");
   const [localRevision, setLocalRevision] = useState(0);
+  const [chartIndicators, setChartIndicators] = useState(
+    DEFAULT_CHART_INDICATORS,
+  );
   const [indicatorSource, setIndicatorSource] = useState<"token" | "benchmark">(
     "token",
   );
@@ -159,18 +163,17 @@ export default function CivicResearch(props: Props) {
     300000,
     update,
   );
-  const tokenCloses = history.data?.simulated
-    ? []
-    : observedSeries(history.data?.points ?? [], "token");
-  const underlyingCloses = history.data?.simulated
-    ? []
-    : observedSeries(history.data?.points ?? [], "benchmark");
-  const closes = indicatorSource === "token" ? tokenCloses : underlyingCloses;
+  const plots = chartObservations(
+    history.data?.points ?? [],
+    indicatorSource,
+    period,
+    history.data?.simulated,
+  );
   const indicators = {
-    ma10: movingAverage(closes, 10).at(-1)?.value,
-    sma20: movingAverage(closes, 20).at(-1)?.value,
-    sma50: movingAverage(closes, 50).at(-1)?.value,
-    rsi: relativeStrength(closes),
+    ma10: plots.ma10.at(-1)?.value,
+    sma20: plots.ma20.at(-1)?.value,
+    sma50: plots.sma50.at(-1)?.value,
+    rsi: plots.rsi.at(-1)?.value,
   };
   const profile = companyProfiles[ticker];
   const held = holding ? Number(holding.formatted) : 0;
@@ -241,6 +244,8 @@ export default function CivicResearch(props: Props) {
                   timeframe={period}
                   onTimeframeChange={setPeriod}
                   livePrice={price ?? undefined}
+                  indicators={chartIndicators}
+                  onIndicatorsChange={setChartIndicators}
                   source={indicatorSource}
                   onSourceChange={setIndicatorSource}
                 />
@@ -1073,6 +1078,9 @@ export function UnderlyingResearch({
   company: ResearchCompany;
   revision: number;
 }) {
+  const [chartIndicators, setChartIndicators] = useState(
+    DEFAULT_CHART_INDICATORS,
+  );
   const [period, setPeriod] = useState<HistoryPeriod>("1d");
   const history = useResource<HistoryFeed>(
     `/api/history?ticker=${encodeURIComponent(company.ticker)}&period=${period}`,
@@ -1105,6 +1113,8 @@ export function UnderlyingResearch({
       {history.data ? (
         <ObservedChart
           history={history.data}
+          indicators={chartIndicators}
+          onIndicatorsChange={setChartIndicators}
           underlyingOnly
           timeframe={period}
           onTimeframeChange={setPeriod}
