@@ -57,3 +57,23 @@ Funding is different from expenditure. USDT used for a small purchase should lar
 ## Data boundaries
 
 Token prices and candles are resolved from the chosen BSC contract. Candle observations retain the provider timestamps; chart gaps are not filled with fabricated paths, wicks, or volume. Delayed underlying references and SEC filings are labelled research data. Reserve attestations apply only to the selected issuer and must not be borrowed from another version of the same stock.
+
+## Chart and research verification — 8 October 2026
+
+The former history request used a rejected 500-candle limit. Binance returned `40001: invalid limit range`, which was swallowed into an empty token series. The endpoint now requests 100 candles with separate 1H/1D/1W intervals and preserves provider errors. Both Stock Exchange and Data Center use these requests. Data Center can render an available underlying series even when token history is absent, keeping identities separate.
+
+A read-only check at 22:00:11 UTC on 7 October (05:00:11 Asia/Jakarta on 8 October) returned:
+
+- 100 valid NVDAB observations for each of the 1m, 15m and 2h candle intervals.
+- Latest candle times of 21:54, 21:45 and 20:00 UTC respectively. These are provider observations, not invented current points.
+- NVDAB market price $237.55, observed at 22:00:08.633 UTC through the timestamped Market Price endpoint.
+- 488 verified BSC contracts and no missing/invalid observations in that batch price check. Counts were 46 bStocks, 442 Ondo and zero xStocks.
+- 80 covered companies in the dated 100-company / 101-share-class OEF equity roster. The source snapshot was 6 October 2026. Remaining companies are research-only.
+
+bStocks remains the default issuer where listed and the central verified LiquidMesh SWAP use case. Ondo broadens discovery; its presence does not bypass the reviewed execution checks. The hackathon requires at least one central issuer integration, so using all three is not required.
+
+The UI keeps the original city, panels and styles. Company cards are grouped with an issuer selector; the S&P 100 research roster and broader live issuer catalogue have distinct filters. Prices are polled every 15 seconds with observation timestamps; underlying references remain explicitly delayed. All-100 real-time equity prices are not claimed.
+
+No wallet signatures, approvals, deployment or trade broadcasts were made for this verification. The funded buy/sell demonstration and public Vercel release remain pending.
+
+Local verification passed all 17 production test files, `npm run typecheck`, and the optimized production build. Browser checks covered real Stock Exchange and Data Center charts on desktop, the Stock Exchange chart at 375px with no horizontal overflow, and underlying-source selection retained after a 1W refresh. No CSS or original `projects/stockcity` files were changed.

@@ -55,6 +55,9 @@ export type HistoryFeed = {
   chainId?: 56;
   error?: string;
   exchange?: string;
+  fetchedAt?: string;
+  tokenError?: string;
+  benchmarkError?: string;
 };
 export function unavailableFeed(): MarketFeed {
   return {

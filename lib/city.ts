@@ -1301,7 +1301,7 @@ export const catalogue: BuildingDef[] = [
     sectorKey: sec.key,
   })),
 
-  // 4. 70 S&P 100 Sector Company Buildings
+  // 4. Legacy sector-company visual templates. Membership comes from stock-universe.
   ...SECTOR_COMPANIES_RAW.map(
     ([ticker, name, sector, price, change, sectorKey, kind]): BuildingDef => ({
       kind,
@@ -1581,8 +1581,7 @@ export function txHashFor(id: string) {
   const hex = (n: number) => (n >>> 0).toString(16).padStart(8, "0");
   return `0x${hex(h1)}${hex(h2)}${hex(h1 ^ h2)}${hex(h2 ^ 0x9e3779b9)}${hex(h1 + h2)}`;
 }
-export const bscLink = (hash: string) =>
-  `https://bscscan.com/tx/${hash}`;
+export const bscLink = (hash: string) => `https://bscscan.com/tx/${hash}`;
 // A deliberately conservative polygon inside the supplied island's buildable grass.
 export const LAND = [
   [355, 124],

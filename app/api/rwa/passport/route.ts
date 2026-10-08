@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { assets } from "../../../../lib/city";
 import { rwaCompany, rwaConfigured } from "../../../../lib/rwa-server";
 export const runtime = "nodejs";
 const cache = new Map<string, { at: number; body: unknown }>();
@@ -10,7 +9,7 @@ export async function GET(request: Request) {
   const contract = searchParams.get("contract");
   if (contract && !/^0x[0-9a-fA-F]{40}$/.test(contract))
     return NextResponse.json({ available: false }, { status: 400 });
-  if (!assets.some((a) => a.ticker === ticker))
+  if (!/^[A-Z0-9][A-Z0-9.-]{0,14}$/.test(ticker))
     return NextResponse.json({ available: false }, { status: 400 });
   if (!rwaConfigured()) return NextResponse.json({ available: false });
   const cacheKey = `${ticker}:${contract?.toLowerCase() ?? "primary"}`;

@@ -6,7 +6,10 @@ import confetti from "canvas-confetti";
 import styles from "./construction-progress.module.css";
 
 export type ConstructionState =
-  "Drafting Site..." | "Constructing on BSC..." | "100% Completed!";
+  | "Drafting Site..."
+  | "Constructing city..."
+  | "Confirming transaction..."
+  | "100% Completed!";
 
 type Props = {
   buildingId: string;
@@ -18,7 +21,7 @@ type Props = {
 };
 
 /**
- * Fires block-confirmation celebration particles over the completed building
+ * Fires visual celebration particles over the completed building
  */
 export function fireCelebrationParticles(element: HTMLElement | null) {
   let origin = { x: 0.5, y: 0.5 };
@@ -153,8 +156,10 @@ export default function ConstructionProgressBar({
   let stateText: ConstructionState = "Drafting Site...";
   if (percent >= 100) {
     stateText = "100% Completed!";
-  } else if (percent >= 35 || isConfirmingOnchain) {
-    stateText = "Constructing on BSC...";
+  } else if (isConfirmingOnchain) {
+    stateText = "Confirming transaction...";
+  } else if (percent >= 35) {
+    stateText = "Constructing city...";
   }
 
   // Format: [████████░░] 78% · 7s

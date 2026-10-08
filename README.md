@@ -11,7 +11,7 @@ Built for **BNB Hack: Tokenized Stocks Edition**, the online BNB Chain and Binan
 A list of tickers and balances can make a first on-chain stock purchase feel abstract. Stockva gives those holdings a visual home while keeping the actual asset, issuer, price, and transaction visible.
 
 - **Build your portfolio city.** Company buildings represent confirmed stock-token holdings in your wallet. Roads and civic services are free visual features.
-- **Discover exact issuer tokens.** Browse Binance Web3 RWA data for bStocks, Ondo, and xStocks on BSC. Different issuers of the same underlying stock remain separate assets.
+- **Discover exact issuer tokens.** bStocks is the primary integration and default issuer when available; Ondo expands discovery coverage. Different issuers of the same underlying stock keep separate contracts and prices. xStocks appears only if the live BSC catalogue lists it.
 - **Buy and sell with real USDT.** Review a wallet-specific quote, simulate the transaction, sign in your wallet, and follow confirmation through City Hall.
 - **Research before trading.** Inspect available token prices, history, and company research. The optional Cokoo advisor provides analysis; each trade requires your own wallet signature.
 
@@ -32,7 +32,13 @@ Stockva enters the **Tokenized Stocks Products & Agents** main track as a portfo
 
 Wallet balances come from BSC RPC. The Cokoo advisor is advisory only; Agentic Wallet, Wallet Skills, and BNB Agent Studio are not implemented integrations.
 
-Market observations retain their source timestamps. Missing prices or token history show as unavailable. Underlying stock reference prices and company research are labelled separately and never substitute for an executable token quote.
+Market prices refresh every 15 seconds through the timestamped Binance Market API, in batches of at most 100 contracts. Observation times stay separate from retrieval times; stale prices and failed refreshes stay visible. Charts fetch up to 100 actual candles for each 1H / 1D / 1W view and preserve token/underlying source errors separately. Verified issuer metadata is cached for up to ten minutes; every trade still requires a fresh executable quote and simulation.
+
+The default research catalogue follows the equity holdings of **iShares OEF**, an S&P 100 tracking fund. The bundled published snapshot is dated **6 October 2026**, with 100 companies and 101 share classes (both Alphabet classes). The server attempts a daily holdings refresh and retains the dated snapshot on failure. This is a fund-holdings reference, not a direct index-constituent feed. It stores identities and sectors, never fallback prices.
+
+The read-only check on **8 October 2026 at 05:00 Asia/Jakarta** found BSC issuer tokens for **80 of those companies**, 488 verified contracts overall (46 bStocks, 442 Ondo, zero xStocks in that response), and valid timestamped market prices for all 488. These counts can change. A listed token does not establish an executable route. Companies without a verified token remain research-only and cannot be bought through a fabricated contract.
+
+Underlying equity references come from Yahoo Finance and are labelled **delayed**; SEC financials retain reporting and filing dates. Full real-time equity coverage for all 100 companies has not been established. Missing data stays unavailable, and underlying references never substitute for an executable token quote.
 
 ## Mainnet architecture
 

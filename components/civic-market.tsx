@@ -20,7 +20,16 @@ import {
 import type { MainnetAsset } from "../lib/mainnet";
 import type { RwaSectorTab } from "../lib/rwa";
 import type { CivicProps } from "./civic-panel";
-import CivicResearch from "./civic-research";
+import CivicResearch, { UnderlyingResearch } from "./civic-research";
+import {
+  SP100_SNAPSHOT,
+  stockCoverage,
+  sameTicker,
+  normalizeTicker,
+  preferredIssuer,
+  priceFreshness,
+  type StockUniverse,
+} from "../lib/stock-universe";
 import RwaSessionClock from "./rwa-session-clock";
 import StockLogo from "./stock-logo";
 import styles from "./civic-panel.module.css";
@@ -35,9 +44,12 @@ export default function CivicMarket(
     ) ??
     props.assets.find((asset) => asset.ticker === "NVDA") ??
     props.assets[0];
-  const [address, setAddress] = useState(
+  const [address, setAddress] = useState<string>(
     props.initialAsset?.address ?? defaultAsset?.address ?? "",
   );
+  const [universe, setUniverse] = useState<StockUniverse>(SP100_SNAPSHOT);
+  const [scope, setScope] = useState<"sp100" | "all">("sp100");
+  const [ticker, setTicker] = useState(props.initialAsset?.ticker ?? "NVDA");
   const [search, setSearch] = useState("");
   const [sector, setSector] = useState("");
   const [issuer, setIssuer] = useState("");
@@ -49,12 +61,18 @@ export default function CivicMarket(
   const [compact, setCompact] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const inspection = props.mode === "data";
+  const issuerOptions = props.assets.filter((asset) =>
+    sameTicker(asset.ticker, ticker),
+  );
   const selectedAsset =
-    props.assets.find(
+    issuerOptions.find(
       (asset) => asset.address.toLowerCase() === address.toLowerCase(),
     ) ??
-    defaultAsset ??
+    preferredIssuer(issuerOptions) ??
     null;
+  const selectedCompany = universe.companies.find((company) =>
+    sameTicker(company.ticker, ticker),
+  );
   const storageKey = `stockva.mainnet.56.basket.${(props.walletAddress ?? props.balance?.account ?? "visitor").toLowerCase()}`;
   const [loadedKey, setLoadedKey] = useState<string | null>(null);
 
@@ -71,6 +89,13 @@ export default function CivicMarket(
   useEffect(() => {
     if (props.initialAsset) {
       setAddress(props.initialAsset.address);
+      setTicker(props.initialAsset.ticker);
+      if (
+        !universe.companies.some((company) =>
+          sameTicker(company.ticker, props.initialAsset!.ticker),
+        )
+      )
+        setScope("all");
       setView("research");
     }
   }, [props.initialAsset]);
@@ -113,6 +138,30 @@ export default function CivicMarket(
       /* Basket preferences never become wallet balances or execution. */
     }
   }, [selected, amounts, storageKey, loadedKey]);
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch("/api/market/universe", {
+      cache: "no-store",
+      signal: controller.signal,
+    })
+      .then((response) => {
+        if (!response.ok) throw new Error("Universe unavailable");
+        return response.json();
+      })
+      .then((data: StockUniverse) => {
+        if (Array.isArray(data.companies) && data.companyCount === 100)
+          setUniverse(data);
+      })
+      .catch(() => {
+        if (!controller.signal.aborted)
+          setUniverse((previous) => ({
+            ...previous,
+            retrievalError:
+              "Roster refresh unavailable; using the dated snapshot.",
+          }));
+      });
+    return () => controller.abort();
+  }, [revision]);
   function addToBundle(asset: MainnetAsset) {
     setSelected((previous) => [
       ...new Set([...previous, asset.address.toLowerCase()]),
@@ -124,16 +173,39 @@ export default function CivicMarket(
     }));
     setView("bundle");
   }
-  const shown = props.assets.filter((asset) => {
-    const metadata = companyMetadata(asset);
-    return (
-      (!sector || metadata.sector === sector) &&
-      (!issuer || asset.platform === issuer) &&
-      `${asset.ticker} ${asset.symbol} ${asset.name} ${asset.platform} ${metadata.sector}`
+  const coverage = stockCoverage(universe, props.assets);
+  const catalogueRows =
+    scope === "sp100"
+      ? coverage
+      : [
+          ...new Map(
+            props.assets.map((asset) => [
+              normalizeTicker(asset.ticker),
+              {
+                ticker: asset.ticker,
+                name: companyMetadata(asset).name,
+                sector: companyMetadata(asset).sector,
+                companyId: normalizeTicker(asset.ticker),
+                issuers: props.assets.filter((row) =>
+                  sameTicker(row.ticker, asset.ticker),
+                ),
+              },
+            ]),
+          ).values(),
+        ];
+  const shown = catalogueRows.filter(
+    (company) =>
+      (!sector || company.sector === sector) &&
+      (!issuer || company.issuers.some((asset) => asset.platform === issuer)) &&
+      `${company.ticker} ${company.name} ${company.sector} ${company.issuers.map((asset) => `${asset.symbol} ${asset.platform}`).join(" ")}`
         .toLowerCase()
-        .includes(search.trim().toLowerCase())
-    );
-  });
+        .includes(search.trim().toLowerCase()),
+  );
+  const coveredCompanies = new Set(
+    coverage
+      .filter((company) => company.issuers.length)
+      .map((company) => company.companyId),
+  ).size;
 
   return (
     <>
@@ -191,7 +263,7 @@ export default function CivicMarket(
           <aside className={styles.catalogue} aria-label="Asset catalogue">
             <div className={styles.catalogueHead}>
               <h4>{inspection ? "Asset inspection" : "Research catalogue"}</h4>
-              <span>{shown.length} tokens</span>
+              <span>{shown.length} share classes</span>
             </div>
             <details
               className={styles.cataloguePicker}
@@ -202,11 +274,28 @@ export default function CivicMarket(
             >
               <summary>
                 <span>
-                  {selectedAsset?.symbol ?? "Select a token"} · Change asset
+                  {selectedAsset?.symbol ??
+                    selectedCompany?.ticker ??
+                    "Select a company"}{" "}
+                  · Change asset
                 </span>
                 <ChevronDown size={16} />
               </summary>
               <div>
+                <label className={styles.field}>
+                  Universe
+                  <select
+                    value={scope}
+                    onChange={(event) => {
+                      setScope(event.target.value as "sp100" | "all");
+                      setSector("");
+                      setVisible(48);
+                    }}
+                  >
+                    <option value="sp100">S&amp;P 100 research</option>
+                    <option value="all">All BSC issuer assets</option>
+                  </select>
+                </label>
                 <label className={styles.search}>
                   <span className={styles.srOnly}>
                     Search company, ticker or issuer
@@ -234,9 +323,7 @@ export default function CivicMarket(
                     <option value="">All sectors</option>
                     {[
                       ...new Set(
-                        props.assets.map(
-                          (asset) => companyMetadata(asset).sector,
-                        ),
+                        catalogueRows.map((company) => company.sector),
                       ),
                     ]
                       .sort()
@@ -263,15 +350,21 @@ export default function CivicMarket(
                   </select>
                 </label>
                 <div className={styles.catalogueList}>
-                  {shown.slice(0, visible).map((asset) => {
-                    const price = observedPrice(asset);
+                  {shown.slice(0, visible).map((company) => {
+                    const asset = preferredIssuer(
+                      company.issuers.filter(
+                        (asset) => !issuer || asset.platform === issuer,
+                      ),
+                    );
+                    const price = asset ? observedPrice(asset) : null;
                     return (
                       <button
-                        key={asset.address}
+                        key={company.ticker}
                         className={styles.assetOption}
-                        aria-pressed={selectedAsset?.address === asset.address}
+                        aria-pressed={sameTicker(ticker, company.ticker)}
                         onClick={() => {
-                          setAddress(asset.address);
+                          setTicker(company.ticker);
+                          setAddress(asset?.address ?? "");
                           if (compact) {
                             setPickerOpen(false);
                             requestAnimationFrame(() =>
@@ -284,28 +377,29 @@ export default function CivicMarket(
                         }}
                       >
                         <StockLogo
-                          ticker={asset.ticker}
-                          name={asset.name}
+                          ticker={company.ticker}
+                          name={company.name}
                           size={30}
                         />
                         <span>
-                          <strong>{asset.symbol}</strong>
+                          <strong>{company.ticker}</strong>
                           <small>
-                            {companyMetadata(asset).name} · {asset.platform}
+                            {company.name} ·{" "}
+                            {company.issuers.length
+                              ? company.issuers
+                                  .map((asset) => asset.platform)
+                                  .join(" / ")
+                              : "Research only"}
                           </small>
                         </span>
                         <div>
                           {price === null ? "—" : money(price)}
                           <small>
-                            {price === null
-                              ? "Unavailable"
-                              : !asset.priceUpdatedAt
-                                ? "Time unavailable"
-                                : Date.now() -
-                                      Date.parse(asset.priceUpdatedAt) >
-                                    120000
-                                  ? "Stale"
-                                  : "Observed"}
+                            {asset
+                              ? priceFreshness(asset).label
+                              : props.loading
+                                ? "Checking issuers…"
+                                : "No BSC token"}
                           </small>
                         </div>
                       </button>
@@ -341,6 +435,21 @@ export default function CivicMarket(
                     </button>
                   )}
                 </div>
+                {scope === "sp100" && (
+                  <p className={styles.caption}>
+                    {universe.companyCount} companies ·{" "}
+                    {universe.companies.length} share classes ·{" "}
+                    {coveredCompanies} companies with listed BSC tokens.{" "}
+                    <a
+                      href={universe.sourcePage}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      iShares OEF equity holdings
+                    </a>{" "}
+                    as of {universe.asOf}. {universe.retrievalError}
+                  </p>
+                )}
                 <p className={styles.caption}>
                   {inspection
                     ? "Issuer evidence is checked for this exact contract."
@@ -361,6 +470,22 @@ export default function CivicMarket(
             </details>
           </aside>
           <div ref={research} className={styles.research}>
+            {issuerOptions.length > 1 && (
+              <label className={styles.field}>
+                Issuer token
+                <select
+                  aria-label="Issuer token"
+                  value={selectedAsset?.address ?? ""}
+                  onChange={(event) => setAddress(event.target.value)}
+                >
+                  {issuerOptions.map((asset) => (
+                    <option key={asset.address} value={asset.address}>
+                      {asset.symbol} · {asset.platform} · {asset.address}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
             {selectedAsset ? (
               <CivicResearch
                 key={`${selectedAsset.address}:${inspection}`}
@@ -371,6 +496,13 @@ export default function CivicMarket(
                 bundleAvailable={
                   !selected.includes(selectedAsset.address.toLowerCase())
                 }
+              />
+            ) : selectedCompany ? (
+              <UnderlyingResearch
+                key={selectedCompany.ticker}
+                company={selectedCompany}
+                loadingIssuer={props.loading}
+                revision={revision}
               />
             ) : (
               <div className={styles.empty}>

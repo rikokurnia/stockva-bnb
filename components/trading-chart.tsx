@@ -19,6 +19,8 @@ export type Timeframe = "1h" | "1d" | "1w";
 
 type Props = {
   points: PricePoint[];
+  timeframe?: Timeframe;
+  onTimeframeChange?: (timeframe: Timeframe) => void;
   compare?: boolean;
   simulated?: boolean;
   ticker?: string;
@@ -38,6 +40,8 @@ type HoverState = {
 
 export default function TradingChart({
   points,
+  timeframe: controlledTimeframe,
+  onTimeframeChange,
   compare = false,
   simulated = false,
   ticker,
@@ -53,7 +57,8 @@ export default function TradingChart({
   const tokenSeriesRef = useRef<ISeriesApi<"Area"> | null>(null);
   const benchmarkSeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
 
-  const [timeframe, setTimeframe] = useState<Timeframe>("1d");
+  const [localTimeframe, setTimeframe] = useState<Timeframe>("1d");
+  const timeframe = controlledTimeframe ?? localTimeframe;
   const [hoverData, setHoverData] = useState<HoverState | null>(null);
 
   const activePrice =
@@ -132,7 +137,7 @@ export default function TradingChart({
       benchmarkSeriesRef.current = null;
     }
 
-    if (tokenData.length === 0) return;
+    if (tokenData.length === 0 && benchmarkData.length === 0) return;
 
     const container = containerRef.current;
     const width = container.clientWidth || 400;
@@ -240,7 +245,9 @@ export default function TradingChart({
     }
 
     // Set visible range to the latest bars, leaving previous bars scrollable to the left
-    const totalBars = tokenData.length;
+    const totalBars = new Set(
+      [...tokenData, ...benchmarkData].map((point) => point.time),
+    ).size;
     const visibleBars = timeframe === "1h" ? 22 : timeframe === "1d" ? 24 : 45;
     chart.timeScale().setVisibleLogicalRange({
       from: Math.max(0, totalBars - visibleBars),
@@ -343,7 +350,10 @@ export default function TradingChart({
               key={tf}
               type="button"
               className={`${styles.timeframeBtn} ${timeframe === tf ? styles.active : ""}`}
-              onClick={() => setTimeframe(tf)}
+              onClick={() => {
+                setTimeframe(tf);
+                onTimeframeChange?.(tf);
+              }}
               title={`Switch to ${tf.toUpperCase()} timeframe`}
             >
               {tf.toUpperCase()}
@@ -387,11 +397,11 @@ export default function TradingChart({
           </div>
         )}
 
-        {tokenData.length > 0 ? (
+        {tokenData.length > 0 || benchmarkData.length > 0 ? (
           <div ref={containerRef} className={styles.chartCanvas} />
         ) : (
           <div className={styles.emptyOverlay}>
-            No token observations available for this period.
+            No observations available for this period.
           </div>
         )}
       </div>

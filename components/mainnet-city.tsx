@@ -200,8 +200,11 @@ export default function MainnetCity() {
     return () => clearInterval(t);
   }, []);
   useEffect(() => {
-    let cancelled = false;
+    let cancelled = false,
+      running = false;
     const load = async () => {
+      if (running || document.visibilityState !== "visible") return;
+      running = true;
       try {
         const list = await getTradingAssets();
         if (!cancelled) {
@@ -216,11 +219,12 @@ export default function MainnetCity() {
           );
         }
       } finally {
+        running = false;
         if (!cancelled) setAssetsLoading(false);
       }
     };
     void load();
-    const t = setInterval(load, 60000);
+    const t = setInterval(load, 15000);
     return () => {
       cancelled = true;
       clearInterval(t);
@@ -707,7 +711,8 @@ export default function MainnetCity() {
           status:
             asset.priceUsd === null
               ? "unavailable"
-              : asset.priceUpdatedAt &&
+              : !asset.priceUpdatedAt ||
+                  !Number.isFinite(Date.parse(asset.priceUpdatedAt)) ||
                   Date.now() - Date.parse(asset.priceUpdatedAt) > 120000
                 ? "stale"
                 : "live",

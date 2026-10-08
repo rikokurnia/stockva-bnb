@@ -28,7 +28,7 @@ export function signBinanceRequest(
 export async function binanceRequest<T>(
   path: string,
   params: Record<string, string> = {},
-  payload?: Record<string, unknown>,
+  payload?: Record<string, unknown> | Record<string, unknown>[],
 ): Promise<T> {
   if (typeof window !== "undefined")
     throw new Error("Binance credentials must remain on the server.");

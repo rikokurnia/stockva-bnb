@@ -1,3 +1,4 @@
+import { applyPriceObservations } from "./market-prices.ts";
 // Only API routes/server data modules import this file. No keys or custody on the client.
 import {
   createCipheriv,
@@ -339,14 +340,14 @@ function resumedQuoteRecord(
   return requireQuoteRecord(quoteId, session, live);
 }
 
-let assetsCache: { at: number; assets: MainnetAsset[] } | undefined;
-let assetsPromise: Promise<MainnetAsset[]> | undefined;
+let metadataCache: { at: number; assets: MainnetAsset[] } | undefined;
+let metadataPromise: Promise<MainnetAsset[]> | undefined;
 /** Exact chain/platform/contracts from Binance's RWA catalogue; decimals verified against BSC. */
-export async function listMainnetAssets(): Promise<MainnetAsset[]> {
-  if (assetsCache && Date.now() - assetsCache.at < 30_000)
-    return assetsCache.assets;
-  if (assetsPromise) return assetsPromise;
-  assetsPromise = (async () => {
+async function issuerCatalogue(): Promise<MainnetAsset[]> {
+  if (metadataCache && Date.now() - metadataCache.at < 600_000)
+    return metadataCache.assets;
+  if (metadataPromise) return metadataPromise;
+  metadataPromise = (async () => {
     const rows = await binanceRequest<Row[]>("/api/v1/dex/market/rwa/tokens");
     if (!Array.isArray(rows))
       throw new TradingError("Binance returned an invalid RWA catalogue.", 502);
@@ -408,7 +409,9 @@ export async function listMainnetAssets(): Promise<MainnetAsset[]> {
           priceUsd: positive(row.tokenPrice),
           referencePriceUsd: positive(row.referencePrice),
           priceUpdatedAt,
+          priceSource: "rwa",
           fetchedAt,
+          metadataFetchedAt: fetchedAt,
           marketStatus: text(status.marketStatus) || null,
           tradingOpen: status.openState === true,
           tokenToShareRatio: positive(row.tokenToShareRatio),
@@ -421,18 +424,81 @@ export async function listMainnetAssets(): Promise<MainnetAsset[]> {
         "No issuer contracts could be verified on BSC mainnet.",
         503,
       );
-    const rank = { ondo: 0, bstock: 1, xstocks: 2 };
+    const rank = { bstock: 0, ondo: 1, xstocks: 2 };
     assets.sort(
       (a, b) =>
         a.ticker.localeCompare(b.ticker) || rank[a.platform] - rank[b.platform],
     );
-    assetsCache = { at: Date.now(), assets };
+    metadataCache = { at: Date.now(), assets };
     return assets;
   })();
   try {
-    return await assetsPromise;
+    return await metadataPromise;
   } finally {
-    assetsPromise = undefined;
+    metadataPromise = undefined;
+  }
+}
+let pricesCache: { at: number; assets: MainnetAsset[] } | undefined;
+let pricesPromise: Promise<MainnetAsset[]> | undefined;
+/** Refresh timestamped observations separately from verified contract metadata. */
+export async function listMainnetAssets(): Promise<MainnetAsset[]> {
+  if (pricesCache && Date.now() - pricesCache.at < 15_000)
+    return pricesCache.assets;
+  if (pricesPromise) return pricesPromise;
+  pricesPromise = (async () => {
+    const catalogue = await issuerCatalogue();
+    const batches: MainnetAsset[][] = [];
+    for (let i = 0; i < catalogue.length; i += 100)
+      batches.push(catalogue.slice(i, i + 100));
+    const responses = await Promise.allSettled(
+      batches.map((batch) =>
+        binanceRequest<unknown>(
+          "/api/v1/dex/market/price",
+          {},
+          batch.map((asset) => ({
+            binanceChainId: "56",
+            tokenContractAddress: asset.address,
+          })),
+        ),
+      ),
+    );
+    const retrievedAt = new Date().toISOString();
+    const refreshed = responses.flatMap((response, index) => {
+      const batch = batches[index].map((asset) => {
+        const previous = pricesCache?.assets.find(
+          (row) => row.address === asset.address,
+        );
+        return previous?.priceSource === "market"
+          ? {
+              ...asset,
+              priceUsd: previous.priceUsd,
+              priceUpdatedAt: previous.priceUpdatedAt,
+              priceSource: previous.priceSource,
+            }
+          : asset;
+      });
+      const result = applyPriceObservations(
+        batch,
+        response.status === "fulfilled" ? response.value : [],
+      );
+      return result.map((asset) => ({
+        ...asset,
+        fetchedAt: retrievedAt,
+        ...(response.status === "rejected"
+          ? {
+              priceError:
+                "Market price refresh unavailable; previous observations may be stale.",
+            }
+          : {}),
+      }));
+    });
+    pricesCache = { at: Date.now(), assets: refreshed };
+    return refreshed;
+  })();
+  try {
+    return await pricesPromise;
+  } finally {
+    pricesPromise = undefined;
   }
 }
 export async function readWalletBalances(

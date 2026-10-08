@@ -1,3 +1,7 @@
+import { getStockUniverse } from "../../../lib/stock-universe-server";
+import { sameTicker } from "../../../lib/stock-universe";
+import { selectMainnetAsset } from "../../../lib/market-observations";
+import { listMainnetAssets } from "../../../lib/trading-server";
 import { NextRequest, NextResponse } from "next/server";
 import { assets } from "../../../lib/city";
 import { secFinancials, type AssetResearch } from "../../../lib/asset-research";
@@ -127,8 +131,26 @@ async function load(ticker: string): Promise<AssetResearch> {
 }
 export async function GET(request: NextRequest) {
   const ticker = request.nextUrl.searchParams.get("ticker") ?? "";
-  if (!assets.some((asset) => asset.ticker === ticker))
+  if (!/^[A-Z0-9][A-Z0-9.-]{0,14}$/.test(ticker))
     return NextResponse.json({ error: "Unknown asset" }, { status: 400 });
+  if (
+    !assets.some((asset) => asset.ticker === ticker) &&
+    !(await getStockUniverse()).companies.some((company) =>
+      sameTicker(company.ticker, ticker),
+    )
+  ) {
+    const contract = request.nextUrl.searchParams.get("contract");
+    if (
+      !contract ||
+      !/^0x[0-9a-fA-F]{40}$/.test(contract) ||
+      !selectMainnetAsset(
+        await listMainnetAssets().catch(() => []),
+        ticker,
+        contract,
+      )
+    )
+      return NextResponse.json({ error: "Unknown asset" }, { status: 400 });
+  }
   const saved = cache.get(ticker);
   if (
     saved &&

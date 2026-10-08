@@ -14,7 +14,8 @@ function computeProgressFormat(percent, totalSeconds = 7) {
 
 function computeConstructionState(percent, isConfirmingOnchain = false) {
   if (percent >= 100) return "100% Completed!";
-  if (percent >= 35 || isConfirmingOnchain) return "Constructing on BSC...";
+  if (isConfirmingOnchain) return "Confirming transaction...";
+  if (percent >= 35) return "Constructing city...";
   return "Drafting Site...";
 }
 
@@ -36,15 +37,15 @@ test("1.3 Construction progress bar exact format: [████████░�
   assert.equal(result100.formatText, "[██████████] 100% Completed!");
 });
 
-test("Construction states progress correctly: Drafting Site -> Constructing on BSC -> 100% Completed!", () => {
+test("Construction states progress correctly: Drafting Site -> Constructing city -> 100% Completed!", () => {
   assert.equal(computeConstructionState(0), "Drafting Site...");
   assert.equal(computeConstructionState(20), "Drafting Site...");
   assert.equal(computeConstructionState(34), "Drafting Site...");
-  assert.equal(computeConstructionState(35), "Constructing on BSC...");
-  assert.equal(computeConstructionState(78), "Constructing on BSC...");
-  assert.equal(computeConstructionState(99), "Constructing on BSC...");
+  assert.equal(computeConstructionState(35), "Constructing city...");
+  assert.equal(computeConstructionState(78), "Constructing city...");
+  assert.equal(computeConstructionState(99), "Constructing city...");
   assert.equal(computeConstructionState(100), "100% Completed!");
 
-  // Blockchain confirmation forces Constructing on BSC state even if percentage is early
-  assert.equal(computeConstructionState(10, true), "Constructing on BSC...");
+  // Actual pending confirmation has a separate label from visual city construction
+  assert.equal(computeConstructionState(10, true), "Confirming transaction...");
 });

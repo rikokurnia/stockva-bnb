@@ -1,9 +1,13 @@
+import { SP100_SNAPSHOT, sameTicker } from "./stock-universe.ts";
 import { assets as companyCatalogue } from "./city.ts";
 import type { MainnetAsset, WalletBalances } from "./mainnet.ts";
 
 /** Static company descriptions never supply token prices or holdings. */
 export function companyMetadata(asset: MainnetAsset) {
-  const company = companyCatalogue.find((item) => item.ticker === asset.ticker);
+  const company =
+    SP100_SNAPSHOT.companies.find((item) =>
+      sameTicker(item.ticker, asset.ticker),
+    ) ?? companyCatalogue.find((item) => item.ticker === asset.ticker);
   return {
     name: company?.name ?? asset.name,
     sector: company?.sector ?? "Other assets",

@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { assets } from "../../../lib/city";
 import type { Passport } from "../../../lib/market";
 import { listMainnetAssets } from "../../../lib/trading-server";
 import { selectMainnetAsset } from "../../../lib/market-observations";
@@ -9,7 +8,7 @@ export const runtime = "nodejs";
 export async function GET(request: NextRequest) {
   const ticker = request.nextUrl.searchParams.get("ticker") ?? "";
   const contract = request.nextUrl.searchParams.get("contract");
-  if (!assets.some((asset) => asset.ticker === ticker))
+  if (!/^[A-Z0-9][A-Z0-9.-]{0,14}$/.test(ticker))
     return NextResponse.json({ error: "Unknown asset" }, { status: 400 });
   if (contract && !/^0x[0-9a-fA-F]{40}$/.test(contract))
     return NextResponse.json(

@@ -70,7 +70,7 @@ test("token research selects an exact BSC contract and never substitutes another
       platform: "ondo",
     },
   ];
-  assert.equal(selectMainnetAsset(rows, "NVDA").platform, "ondo");
+  assert.equal(selectMainnetAsset(rows, "NVDA").platform, "bstock");
   assert.equal(
     selectMainnetAsset(rows, "NVDA", rows[0].address).platform,
     "bstock",

@@ -6,6 +6,7 @@
 // script): preHash = timestamp + METHOD + "/build" + path + ["?" + query] +
 // body, signature = Base64(HMAC-SHA256(secret, preHash)).
 import { createHmac } from "node:crypto";
+import { sameTicker } from "./stock-universe.ts";
 import {
   sessionLabel,
   spreadBps,
@@ -134,16 +135,16 @@ function bscMatches(
   const matches = list.filter(
     (r) =>
       isBsc(r) &&
-      underlyingOf(r) === ticker &&
+      sameTicker(underlyingOf(r) ?? "", ticker) &&
       /^(ondo|bstock|xstocks)$/i.test(
         str(pick(r, /platformid|platform/i)) ?? "",
       ) &&
       /^0x[0-9a-f]{40}$/i.test(str(pick(r, /contractaddress/i)) ?? ""),
   );
   const rank = (r: Record<string, unknown>) =>
-    str(pick(r, /platformid|platform/i))?.toLowerCase() === "ondo"
+    str(pick(r, /platformid|platform/i))?.toLowerCase() === "bstock"
       ? 0
-      : str(pick(r, /platformid|platform/i))?.toLowerCase() === "bstock"
+      : str(pick(r, /platformid|platform/i))?.toLowerCase() === "ondo"
         ? 1
         : 2;
   return matches.sort(

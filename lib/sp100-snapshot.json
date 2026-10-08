@@ -1,0 +1,616 @@
+{
+  "asOf": "2026-10-06",
+  "source": "iShares OEF equity holdings (S&P 100 tracking fund)",
+  "sourceUrl": "https://www.ishares.com/us/products/239723/ishares-s-p-100-etf/latest-holdings.csv",
+  "sourcePage": "https://www.ishares.com/us/products/239723/ishares-sp-100-etf",
+  "companyCount": 100,
+  "sha256": "6355afb16619451bd650be07803bda6764812b85b50ba27e59fb7d2e2cd3e698",
+  "companies": [
+    {
+      "ticker": "NVDA",
+      "name": "NVIDIA",
+      "sector": "Information Technology",
+      "companyId": "NVDA"
+    },
+    {
+      "ticker": "AAPL",
+      "name": "APPLE",
+      "sector": "Information Technology",
+      "companyId": "AAPL"
+    },
+    {
+      "ticker": "MSFT",
+      "name": "MICROSOFT",
+      "sector": "Information Technology",
+      "companyId": "MSFT"
+    },
+    {
+      "ticker": "AMZN",
+      "name": "AMAZON.COM INC",
+      "sector": "Consumer Discretionary",
+      "companyId": "AMZN"
+    },
+    {
+      "ticker": "GOOGL",
+      "name": "ALPHABET CLASS A",
+      "sector": "Communication",
+      "companyId": "ALPHABET"
+    },
+    {
+      "ticker": "AVGO",
+      "name": "BROADCOM INC",
+      "sector": "Information Technology",
+      "companyId": "AVGO"
+    },
+    {
+      "ticker": "GOOG",
+      "name": "ALPHABET CLASS C",
+      "sector": "Communication",
+      "companyId": "ALPHABET"
+    },
+    {
+      "ticker": "META",
+      "name": "META PLATFORMS CLASS A",
+      "sector": "Communication",
+      "companyId": "META"
+    },
+    {
+      "ticker": "MU",
+      "name": "MICRON TECHNOLOGY",
+      "sector": "Information Technology",
+      "companyId": "MU"
+    },
+    {
+      "ticker": "TSLA",
+      "name": "TESLA INC",
+      "sector": "Consumer Discretionary",
+      "companyId": "TSLA"
+    },
+    {
+      "ticker": "AMD",
+      "name": "ADVANCED MICRO DEVICES",
+      "sector": "Information Technology",
+      "companyId": "AMD"
+    },
+    {
+      "ticker": "BRK.B",
+      "name": "BERKSHIRE HATHAWAY INC CLASS B",
+      "sector": "Financials",
+      "companyId": "BRKB"
+    },
+    {
+      "ticker": "LLY",
+      "name": "ELI LILLY",
+      "sector": "Health Care",
+      "companyId": "LLY"
+    },
+    {
+      "ticker": "JPM",
+      "name": "JPMORGAN CHASE & CO",
+      "sector": "Financials",
+      "companyId": "JPM"
+    },
+    {
+      "ticker": "XOM",
+      "name": "EXXONMOBIL HOLDINGS CORP",
+      "sector": "Energy",
+      "companyId": "XOM"
+    },
+    {
+      "ticker": "V",
+      "name": "VISA CLASS A",
+      "sector": "Financials",
+      "companyId": "V"
+    },
+    {
+      "ticker": "JNJ",
+      "name": "JOHNSON & JOHNSON",
+      "sector": "Health Care",
+      "companyId": "JNJ"
+    },
+    {
+      "ticker": "INTC",
+      "name": "INTEL CORPORATION",
+      "sector": "Information Technology",
+      "companyId": "INTC"
+    },
+    {
+      "ticker": "WMT",
+      "name": "WALMART",
+      "sector": "Consumer Staples",
+      "companyId": "WMT"
+    },
+    {
+      "ticker": "ABBV",
+      "name": "ABBVIE",
+      "sector": "Health Care",
+      "companyId": "ABBV"
+    },
+    {
+      "ticker": "CSCO",
+      "name": "CISCO SYSTEMS INC",
+      "sector": "Information Technology",
+      "companyId": "CSCO"
+    },
+    {
+      "ticker": "MA",
+      "name": "MASTERCARD CLASS A",
+      "sector": "Financials",
+      "companyId": "MA"
+    },
+    {
+      "ticker": "PLTR",
+      "name": "PALANTIR TECHNOLOGIES CLASS A",
+      "sector": "Information Technology",
+      "companyId": "PLTR"
+    },
+    {
+      "ticker": "AMAT",
+      "name": "APPLIED MATERIAL INC",
+      "sector": "Information Technology",
+      "companyId": "AMAT"
+    },
+    {
+      "ticker": "LRCX",
+      "name": "LAM RESEARCH",
+      "sector": "Information Technology",
+      "companyId": "LRCX"
+    },
+    {
+      "ticker": "COST",
+      "name": "COSTCO WHOLESALE CORP",
+      "sector": "Consumer Staples",
+      "companyId": "COST"
+    },
+    {
+      "ticker": "CVX",
+      "name": "CHEVRON",
+      "sector": "Energy",
+      "companyId": "CVX"
+    },
+    {
+      "ticker": "CAT",
+      "name": "CATERPILLAR INC",
+      "sector": "Industrials",
+      "companyId": "CAT"
+    },
+    {
+      "ticker": "BAC",
+      "name": "BANK OF AMERICA",
+      "sector": "Financials",
+      "companyId": "BAC"
+    },
+    {
+      "ticker": "MRK",
+      "name": "MERCK & CO INC",
+      "sector": "Health Care",
+      "companyId": "MRK"
+    },
+    {
+      "ticker": "PG",
+      "name": "PROCTER & GAMBLE",
+      "sector": "Consumer Staples",
+      "companyId": "PG"
+    },
+    {
+      "ticker": "PANW",
+      "name": "PALO ALTO NETWORKS",
+      "sector": "Information Technology",
+      "companyId": "PANW"
+    },
+    {
+      "ticker": "UNH",
+      "name": "UNITEDHEALTH GROUP",
+      "sector": "Health Care",
+      "companyId": "UNH"
+    },
+    {
+      "ticker": "KO",
+      "name": "COCA-COLA",
+      "sector": "Consumer Staples",
+      "companyId": "KO"
+    },
+    {
+      "ticker": "GE",
+      "name": "GE AEROSPACE",
+      "sector": "Industrials",
+      "companyId": "GE"
+    },
+    {
+      "ticker": "PM",
+      "name": "PHILIP MORRIS INTERNATIONAL",
+      "sector": "Consumer Staples",
+      "companyId": "PM"
+    },
+    {
+      "ticker": "NFLX",
+      "name": "NETFLIX",
+      "sector": "Communication",
+      "companyId": "NFLX"
+    },
+    {
+      "ticker": "HD",
+      "name": "HOME DEPOT",
+      "sector": "Consumer Discretionary",
+      "companyId": "HD"
+    },
+    {
+      "ticker": "GEV",
+      "name": "GE VERNOVA",
+      "sector": "Industrials",
+      "companyId": "GEV"
+    },
+    {
+      "ticker": "TXN",
+      "name": "TEXAS INSTRUMENT INC",
+      "sector": "Information Technology",
+      "companyId": "TXN"
+    },
+    {
+      "ticker": "GS",
+      "name": "GOLDMAN SACHS GROUP",
+      "sector": "Financials",
+      "companyId": "GS"
+    },
+    {
+      "ticker": "ORCL",
+      "name": "ORACLE",
+      "sector": "Information Technology",
+      "companyId": "ORCL"
+    },
+    {
+      "ticker": "RTX",
+      "name": "RTX",
+      "sector": "Industrials",
+      "companyId": "RTX"
+    },
+    {
+      "ticker": "WFC",
+      "name": "WELLS FARGO",
+      "sector": "Financials",
+      "companyId": "WFC"
+    },
+    {
+      "ticker": "TMO",
+      "name": "THERMO FISHER SCIENTIFIC INC",
+      "sector": "Health Care",
+      "companyId": "TMO"
+    },
+    {
+      "ticker": "SNDK",
+      "name": "SANDISK",
+      "sector": "Information Technology",
+      "companyId": "SNDK"
+    },
+    {
+      "ticker": "MS",
+      "name": "MORGAN STANLEY",
+      "sector": "Financials",
+      "companyId": "MS"
+    },
+    {
+      "ticker": "LIN",
+      "name": "LINDE PLC",
+      "sector": "Materials",
+      "companyId": "LIN"
+    },
+    {
+      "ticker": "ANET",
+      "name": "ARISTA NETWORKS",
+      "sector": "Information Technology",
+      "companyId": "ANET"
+    },
+    {
+      "ticker": "AMGN",
+      "name": "AMGEN INC",
+      "sector": "Health Care",
+      "companyId": "AMGN"
+    },
+    {
+      "ticker": "C",
+      "name": "CITIGROUP",
+      "sector": "Financials",
+      "companyId": "C"
+    },
+    {
+      "ticker": "IBM",
+      "name": "INTERNATIONAL BUSINESS MACHINES",
+      "sector": "Information Technology",
+      "companyId": "IBM"
+    },
+    {
+      "ticker": "QCOM",
+      "name": "QUALCOMM",
+      "sector": "Information Technology",
+      "companyId": "QCOM"
+    },
+    {
+      "ticker": "VZ",
+      "name": "VERIZON COMMUNICATIONS INC",
+      "sector": "Communication",
+      "companyId": "VZ"
+    },
+    {
+      "ticker": "CRM",
+      "name": "SALESFORCE",
+      "sector": "Information Technology",
+      "companyId": "CRM"
+    },
+    {
+      "ticker": "DIS",
+      "name": "WALT DISNEY",
+      "sector": "Communication",
+      "companyId": "DIS"
+    },
+    {
+      "ticker": "GILD",
+      "name": "GILEAD SCIENCES",
+      "sector": "Health Care",
+      "companyId": "GILD"
+    },
+    {
+      "ticker": "DELL",
+      "name": "DELL TECHNOLOGIES INC CLASS C",
+      "sector": "Information Technology",
+      "companyId": "DELL"
+    },
+    {
+      "ticker": "PEP",
+      "name": "PEPSICO",
+      "sector": "Consumer Staples",
+      "companyId": "PEP"
+    },
+    {
+      "ticker": "DE",
+      "name": "DEERE",
+      "sector": "Industrials",
+      "companyId": "DE"
+    },
+    {
+      "ticker": "ABT",
+      "name": "ABBOTT LABORATORIES",
+      "sector": "Health Care",
+      "companyId": "ABT"
+    },
+    {
+      "ticker": "T",
+      "name": "AT&T",
+      "sector": "Communication",
+      "companyId": "T"
+    },
+    {
+      "ticker": "MCD",
+      "name": "MCDONALDS CORP",
+      "sector": "Consumer Discretionary",
+      "companyId": "MCD"
+    },
+    {
+      "ticker": "UNP",
+      "name": "UNION PACIFIC",
+      "sector": "Industrials",
+      "companyId": "UNP"
+    },
+    {
+      "ticker": "NEE",
+      "name": "NEXTERA ENERGY",
+      "sector": "Utilities",
+      "companyId": "NEE"
+    },
+    {
+      "ticker": "AXP",
+      "name": "AMERICAN EXPRESS",
+      "sector": "Financials",
+      "companyId": "AXP"
+    },
+    {
+      "ticker": "SCHW",
+      "name": "CHARLES SCHWAB",
+      "sector": "Financials",
+      "companyId": "SCHW"
+    },
+    {
+      "ticker": "PFE",
+      "name": "PFIZER",
+      "sector": "Health Care",
+      "companyId": "PFE"
+    },
+    {
+      "ticker": "BLK",
+      "name": "BLACKROCK",
+      "sector": "Financials",
+      "companyId": "BLK"
+    },
+    {
+      "ticker": "COP",
+      "name": "CONOCOPHILLIPS",
+      "sector": "Energy",
+      "companyId": "COP"
+    },
+    {
+      "ticker": "BA",
+      "name": "BOEING",
+      "sector": "Industrials",
+      "companyId": "BA"
+    },
+    {
+      "ticker": "ISRG",
+      "name": "INTUITIVE SURGICAL",
+      "sector": "Health Care",
+      "companyId": "ISRG"
+    },
+    {
+      "ticker": "NOW",
+      "name": "SERVICENOW",
+      "sector": "Information Technology",
+      "companyId": "NOW"
+    },
+    {
+      "ticker": "UBER",
+      "name": "UBER TECHNOLOGIES",
+      "sector": "Industrials",
+      "companyId": "UBER"
+    },
+    {
+      "ticker": "DHR",
+      "name": "DANAHER",
+      "sector": "Health Care",
+      "companyId": "DHR"
+    },
+    {
+      "ticker": "BMY",
+      "name": "BRISTOL MYERS SQUIBB",
+      "sector": "Health Care",
+      "companyId": "BMY"
+    },
+    {
+      "ticker": "COF",
+      "name": "CAPITAL ONE FINANCIAL CORP",
+      "sector": "Financials",
+      "companyId": "COF"
+    },
+    {
+      "ticker": "BKNG",
+      "name": "BOOKING HOLDINGS",
+      "sector": "Consumer Discretionary",
+      "companyId": "BKNG"
+    },
+    {
+      "ticker": "ACN",
+      "name": "ACCENTURE PLC CLASS A",
+      "sector": "Information Technology",
+      "companyId": "ACN"
+    },
+    {
+      "ticker": "MO",
+      "name": "ALTRIA GROUP INC",
+      "sector": "Consumer Staples",
+      "companyId": "MO"
+    },
+    {
+      "ticker": "MDT",
+      "name": "MEDTRONIC PLC",
+      "sector": "Health Care",
+      "companyId": "MDT"
+    },
+    {
+      "ticker": "CVS",
+      "name": "CVS HEALTH",
+      "sector": "Health Care",
+      "companyId": "CVS"
+    },
+    {
+      "ticker": "SBUX",
+      "name": "STARBUCKS CORP",
+      "sector": "Consumer Discretionary",
+      "companyId": "SBUX"
+    },
+    {
+      "ticker": "LMT",
+      "name": "LOCKHEED MARTIN CORP",
+      "sector": "Industrials",
+      "companyId": "LMT"
+    },
+    {
+      "ticker": "LOW",
+      "name": "LOWES COMPANIES INC",
+      "sector": "Consumer Discretionary",
+      "companyId": "LOW"
+    },
+    {
+      "ticker": "SO",
+      "name": "SOUTHERN",
+      "sector": "Utilities",
+      "companyId": "SO"
+    },
+    {
+      "ticker": "BNY",
+      "name": "BANK OF NEW YORK MELLON CORP",
+      "sector": "Financials",
+      "companyId": "BNY"
+    },
+    {
+      "ticker": "ADBE",
+      "name": "ADOBE INC",
+      "sector": "Information Technology",
+      "companyId": "ADBE"
+    },
+    {
+      "ticker": "DUK",
+      "name": "DUKE ENERGY CORP",
+      "sector": "Utilities",
+      "companyId": "DUK"
+    },
+    {
+      "ticker": "EMR",
+      "name": "EMERSON ELECTRIC",
+      "sector": "Industrials",
+      "companyId": "EMR"
+    },
+    {
+      "ticker": "USB",
+      "name": "US BANCORP",
+      "sector": "Financials",
+      "companyId": "USB"
+    },
+    {
+      "ticker": "MMM",
+      "name": "3M",
+      "sector": "Industrials",
+      "companyId": "MMM"
+    },
+    {
+      "ticker": "GD",
+      "name": "GENERAL DYNAMICS CORP",
+      "sector": "Industrials",
+      "companyId": "GD"
+    },
+    {
+      "ticker": "TMUS",
+      "name": "T MOBILE US INC",
+      "sector": "Communication",
+      "companyId": "TMUS"
+    },
+    {
+      "ticker": "INTU",
+      "name": "INTUIT",
+      "sector": "Information Technology",
+      "companyId": "INTU"
+    },
+    {
+      "ticker": "AMT",
+      "name": "AMERICAN TOWER REIT",
+      "sector": "Real Estate",
+      "companyId": "AMT"
+    },
+    {
+      "ticker": "CMCSA",
+      "name": "COMCAST CLASS A",
+      "sector": "Communication",
+      "companyId": "CMCSA"
+    },
+    {
+      "ticker": "MDLZ",
+      "name": "MONDELEZ INTERNATIONAL CLASS A",
+      "sector": "Consumer Staples",
+      "companyId": "MDLZ"
+    },
+    {
+      "ticker": "GM",
+      "name": "GENERAL MOTORS",
+      "sector": "Consumer Discretionary",
+      "companyId": "GM"
+    },
+    {
+      "ticker": "UPS",
+      "name": "UNITED PARCEL SERVICE INC CLASS B",
+      "sector": "Industrials",
+      "companyId": "UPS"
+    },
+    {
+      "ticker": "FDX",
+      "name": "FEDEX CORP",
+      "sector": "Industrials",
+      "companyId": "FDX"
+    }
+  ]
+}

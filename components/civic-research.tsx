@@ -29,6 +29,8 @@ import type { RwaCompany } from "../lib/rwa";
 import type { CivicProps } from "./civic-panel";
 import { stamp } from "../lib/civic";
 import StockLogo from "./stock-logo";
+import { priceFreshness, type ResearchCompany } from "../lib/stock-universe";
+import type { HistoryPeriod } from "../lib/market-observations";
 import ObservedChart from "./observed-chart";
 import styles from "./civic-panel.module.css";
 
@@ -47,10 +49,12 @@ function useResource<T>(
       setLoading(false);
       return;
     }
-    let active = true;
+    let active = true,
+      running = false;
     let controller: AbortController | undefined;
     async function refresh() {
-      controller?.abort();
+      if (running) return;
+      running = true;
       controller = new AbortController();
       setLoading(true);
       try {
@@ -75,6 +79,7 @@ function useResource<T>(
             "This source could not be refreshed. Retry shortly; any previously loaded values may be stale.",
           );
       } finally {
+        running = false;
         if (active) setLoading(false);
       }
     }
@@ -101,15 +106,16 @@ export default function CivicResearch(props: Props) {
   const ticker = asset.ticker;
   const metadata = companyMetadata(asset);
   const price = observedPrice(asset);
+  const freshness = priceFreshness(asset);
+  const [period, setPeriod] = useState<HistoryPeriod>("1d");
   const quote = {
     price: price ?? 0,
     status:
       price === null
         ? "unavailable"
-        : asset.priceUpdatedAt &&
-            Date.now() - Date.parse(asset.priceUpdatedAt) > 120000
-          ? "stale"
-          : "live",
+        : freshness.status === "observed"
+          ? "live"
+          : "stale",
     source: `Binance Web3 · ${asset.platform} · BSC 56`,
     fetchedAt: asset.priceUpdatedAt,
     contract: asset.address,
@@ -132,12 +138,12 @@ export default function CivicResearch(props: Props) {
   );
   const update = revision + localRevision;
   const history = useResource<HistoryFeed>(
-    `${assetResearchUrl("/api/history", asset)}&range=1mo&interval=15m`,
-    60000,
+    `${assetResearchUrl("/api/history", asset)}&period=${period}`,
+    15000,
     update,
   );
   const research = useResource<AssetResearch>(
-    inspection ? null : `/api/research?ticker=${encodeURIComponent(ticker)}`,
+    inspection ? null : assetResearchUrl("/api/research", asset),
     300000,
     update,
   );
@@ -172,9 +178,7 @@ export default function CivicResearch(props: Props) {
     !!quote && quote.status !== "unavailable" && quote.price > 0;
   const quoteLabel = !quoteAvailable
     ? "BSC token price unavailable"
-    : quote.status === "stale"
-      ? "Stale BSC token observation"
-      : "BSC token observation";
+    : freshness.label;
   const changeAvailable = quoteAvailable && quote.changeAvailable === true;
   return (
     <>
@@ -199,13 +203,14 @@ export default function CivicResearch(props: Props) {
       </div>
       <div className={styles.quoteMeta}>
         <span>
-          {quote?.source ?? "Provider unavailable"} · fetched{" "}
+          {quote?.source ?? "Provider unavailable"} · observed{" "}
           {stamp(quote?.fetchedAt)}
         </span>
         <span>
-          Observation times may be unavailable; trades use fresh quotes
+          Prices checked every 15 seconds; trades use fresh executable quotes
         </span>
       </div>
+      {asset.priceError && <p className={styles.notice}>{asset.priceError}</p>}
       {!inspection && (
         <>
           <nav
@@ -233,7 +238,10 @@ export default function CivicResearch(props: Props) {
               ) : history.data ? (
                 <ObservedChart
                   history={history.data}
+                  timeframe={period}
+                  onTimeframeChange={setPeriod}
                   livePrice={price ?? undefined}
+                  source={indicatorSource}
                   onSourceChange={setIndicatorSource}
                 />
               ) : (
@@ -268,8 +276,8 @@ export default function CivicResearch(props: Props) {
               <p className={styles.caption}>
                 Indicators use{" "}
                 {indicatorSource === "token" ? "token" : "underlying"} observed
-                observed closes. A dash means there are too few observations.
-                These are measurements, not buy or sell recommendations.
+                closes. A dash means there are too few observations. These are
+                measurements, not buy or sell recommendations.
               </p>
             </>
           )}
@@ -518,6 +526,8 @@ export default function CivicResearch(props: Props) {
       {inspection && (
         <TokenInspection
           asset={asset}
+          timeframe={period}
+          onTimeframeChange={setPeriod}
           contract={asset.address}
           passport={passport.data}
           loading={passport.loading}
@@ -545,6 +555,8 @@ export default function CivicResearch(props: Props) {
   );
 }
 function TokenInspection({
+  timeframe,
+  onTimeframeChange,
   asset,
   contract,
   passport,
@@ -556,6 +568,8 @@ function TokenInspection({
   onRetry,
 }: {
   asset: MainnetAsset;
+  timeframe: HistoryPeriod;
+  onTimeframeChange: (period: HistoryPeriod) => void;
   contract?: string;
   passport: Passport | null;
   loading: boolean;
@@ -654,6 +668,9 @@ function TokenInspection({
                 </Fact>
                 <Fact label="Issuer trading status">
                   {asset.marketStatus ?? "Unknown"}
+                </Fact>
+                <Fact label="Issuer metadata checked">
+                  {stamp(asset.metadataFetchedAt)}
                 </Fact>
               </dl>
               <p className={styles.caption}>
@@ -800,7 +817,7 @@ function TokenInspection({
             <strong>
               {tokenPrice == null ? "Unavailable" : money(tokenPrice)}
             </strong>
-            <small>Retrieved {stamp(tokenFetchedAt)}</small>
+            <small>Observed {stamp(tokenFetchedAt)}</small>
           </div>
           <div>
             <small>Underlying reference</small>
@@ -937,7 +954,13 @@ function TokenInspection({
         {historyLoading && !history ? (
           <Loading label="Retrieving independent price histories…" />
         ) : history ? (
-          <ObservedChart history={history} livePrice={tokenPrice} compare />
+          <ObservedChart
+            history={history}
+            livePrice={tokenPrice}
+            compare
+            timeframe={timeframe}
+            onTimeframeChange={onTimeframeChange}
+          />
         ) : (
           <p className={styles.notice}>Price history is unavailable.</p>
         )}
@@ -1038,4 +1061,60 @@ function formatFinancial(metric: FinancialMetric) {
     notation: "compact",
     maximumFractionDigits: 2,
   }).format(metric.value);
+}
+
+/** Research-only companies have no synthetic token identity, balance or buy action. */
+export function UnderlyingResearch({
+  company,
+  revision,
+  loadingIssuer = false,
+}: {
+  loadingIssuer?: boolean;
+  company: ResearchCompany;
+  revision: number;
+}) {
+  const [period, setPeriod] = useState<HistoryPeriod>("1d");
+  const history = useResource<HistoryFeed>(
+    `/api/history?ticker=${encodeURIComponent(company.ticker)}&period=${period}`,
+    60000,
+    revision,
+  );
+  return (
+    <>
+      <div className={styles.assetHeader}>
+        <div className={styles.assetIdentity}>
+          <StockLogo ticker={company.ticker} name={company.name} size={44} />
+          <div>
+            <h3>{company.name}</h3>
+            <p>
+              {company.ticker} · {company.sector}
+            </p>
+          </div>
+        </div>
+      </div>
+      <p className={styles.notice}>
+        {loadingIssuer
+          ? "Checking BSC issuer availability…"
+          : "No verified BSC issuer token is currently available for this company."}{" "}
+        Underlying references are research only.
+      </p>
+      <p className={styles.caption}>
+        Yahoo Finance · delayed underlying reference · observed{" "}
+        {stamp(history.data?.benchmarkAt)}.
+      </p>
+      {history.data ? (
+        <ObservedChart
+          history={history.data}
+          underlyingOnly
+          timeframe={period}
+          onTimeframeChange={setPeriod}
+        />
+      ) : history.loading ? (
+        <Loading label="Loading underlying reference…" />
+      ) : (
+        <p className={styles.notice}>Underlying history unavailable.</p>
+      )}
+      {history.error && <p className={styles.warning}>{history.error}</p>}
+    </>
+  );
 }

@@ -1,3 +1,5 @@
+import { getStockUniverse } from "../../../lib/stock-universe-server";
+import { sameTicker } from "../../../lib/stock-universe";
 import { NextRequest, NextResponse } from "next/server";
 import { XMLParser } from "fast-xml-parser";
 import { assets } from "../../../lib/city";
@@ -22,7 +24,11 @@ const companyNames: Record<string, RegExp> = {
 };
 export async function GET(request: NextRequest) {
   const ticker = request.nextUrl.searchParams.get("ticker") ?? "";
-  const asset = assets.find((a) => a.ticker === ticker);
+  const asset =
+    assets.find((a) => a.ticker === ticker) ??
+    (await getStockUniverse()).companies.find((company) =>
+      sameTicker(company.ticker, ticker),
+    );
   if (!asset)
     return NextResponse.json({ error: "Unknown company" }, { status: 400 });
   const saved = cache.get(ticker);

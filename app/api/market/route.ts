@@ -10,7 +10,7 @@ import type { MainnetAsset } from "../../../lib/mainnet";
 
 export const runtime = "nodejs";
 const rank = (asset: MainnetAsset) =>
-  asset.platform === "ondo" ? 0 : asset.platform === "bstock" ? 1 : 2;
+  asset.platform === "bstock" ? 0 : asset.platform === "ondo" ? 1 : 2;
 
 export async function GET() {
   const feed: MarketFeed = unavailableFeed();

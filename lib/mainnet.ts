@@ -25,6 +25,9 @@ export type MainnetAsset = {
   priceUsd: string | null;
   referencePriceUsd: string | null;
   priceUpdatedAt: string | null;
+  metadataFetchedAt?: string;
+  priceSource?: "market" | "rwa";
+  priceError?: string;
   fetchedAt: string;
   marketStatus: string | null;
   tradingOpen: boolean;
