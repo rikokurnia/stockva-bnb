@@ -77,6 +77,8 @@ npm run typecheck
 npm run build:vercel
 ```
 
+Verify the clean install with Node 22 and npm 10 (tested with npm 10.9.8), including when updating the lockfile. The WebSocket override keeps `ws` 8.22.0 at the root and WalletConnect's required `ws` 7.5.13 in its own nested dependency. Preserve this layout; an install check under a different npm major alone does not validate Vercel's install step.
+
 After deployment, check the hosted browser's API responses and wallet connection. Fresh local provider probes can also be run with the same credentials:
 
 ```bash
@@ -90,9 +92,9 @@ A completed build, quote, or approval simulation does not prove a live round tri
 
 ## Repository verification — 11 October 2026
 
-- A clean `npm ci` passed under Node **22.23.3**. The final patched lockfile also passed `npm ci --dry-run`.
+- A fresh checkout's full `npm ci` passed under Node **22.23.3 / npm 10.9.8** after correcting the WebSocket dependency layout. The corrected lockfile also passed `npm ci --dry-run` with npm **12.0.1**.
 - All **19 production test files**, typecheck, and the final `npm run build:vercel` passed under Node 22 using the normal `.next` output.
-- An empty deployment environment was correctly rejected; the successful build used an ephemeral verification-only recovery secret. No real recovery secret was generated for your Vercel project or committed. Supply your own persistent value from the template.
+- An empty deployment environment was correctly rejected. Build credentials were supplied privately through local environment configuration; no credentials or recovery secrets were committed. Supply a persistent recovery secret in Vercel.
 - The checked-in Vercel settings were checked against Vercel's official current schema.
 - No configured private credential values were found in browser JavaScript chunks.
 - The local production browser opened Privy's wallet chooser and rendered the bStocks NVDAB chart with actual volume and averages. No wallet was connected and no transaction was signed. Assets polling showed transient HTTP 502 responses during the extended run; a fresh endpoint check returned HTTP 200. Hosted provider access still needs the post-deploy smoke test.
