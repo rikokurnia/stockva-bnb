@@ -4,10 +4,9 @@ import { PrivyProvider } from "@privy-io/react-auth";
 import { bsc } from "viem/chains";
 import type { ReactNode } from "react";
 
-const PRIVY_APP_ID =
-  process.env.NEXT_PUBLIC_PRIVY_APP_ID ??
-  process.env.PRIVY_APP_ID ??
-  "cmul4xdgk00710ckz56rzh7zl";
+const PRIVY_APP_ID = process.env.NEXT_PUBLIC_PRIVY_APP_ID ?? "";
+if (!PRIVY_APP_ID)
+  throw new Error("Set NEXT_PUBLIC_PRIVY_APP_ID before building Stockva.");
 
 export default function Providers({ children }: { children: ReactNode }) {
   return (

@@ -70,7 +70,7 @@ npm install
 cp .env.example .env.local
 ```
 
-Configure `.env.local` using [.env.example](.env.example):
+Configure `.env.local` using [.env.example](.env.example). For Vercel, use the dedicated [environment template](.env.vercel.example) and [deployment guide](docs/vercel-deployment.md):
 
 | Variable                         | Purpose                                                                                                     |
 | -------------------------------- | ----------------------------------------------------------------------------------------------------------- |
@@ -146,7 +146,7 @@ The [official rules](https://www.bnbchain.org/en/hackathons/tokenized-stocks?tab
 
 Submissions close **11 October 2026 at 12:00 UTC / 19:00 Asia/Jakarta**. Keep the submitted repository, demo, and deployed link accessible through judging on **12–23 October 2026**. Confirm participant eligibility and complete the official forms through the event page.
 
-See [the submission checklist](docs/hackathon-checklist.md) for remaining deliverables and [Vercel preparation](docs/vercel-deployment.md) for deployment settings. Import this repository into Vercel with the **repository root** as the project root and the Next.js preset. Configure production credentials, a stable recovery secret, and the deployed Privy origin before live verification.
+See [the submission checklist](docs/hackathon-checklist.md) for remaining deliverables and [the Vercel deployment guide](docs/vercel-deployment.md) for exact settings. Import `rikokurnia/stockva-bnb` with the **repository root** as the project root and the Next.js preset. The checked-in config pins Node 22, uses `npm ci`, and gives API routes a 120-second budget. Fill the [Vercel env template](.env.vercel.example); Vercel builds reject missing credentials, template placeholders, and short recovery secrets. Add the deployed origin in Privy before connecting the wallet.
 
 ## Project layout
 

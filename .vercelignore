@@ -1,0 +1,11 @@
+node_modules/
+.next/
+.next-production/
+.next-mainnet-*/
+.gstack/
+*.tsbuildinfo
+.env
+.env.*
+!.env.example
+!.env.vercel.example
+contracts/
